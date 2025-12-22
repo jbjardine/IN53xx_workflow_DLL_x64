@@ -1,0 +1,29 @@
+.venv/
+.venv-pdf/
+
+# Vendor SDK (private/proprietary)
+vendor/
+
+# Build outputs
+build*/
+build/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Visual Studio / MSBuild
+.vs/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.vcxproj.user
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.dll
+*.exe
+*.log
