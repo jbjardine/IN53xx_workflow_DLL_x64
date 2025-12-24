@@ -1,6 +1,9 @@
 #include "uhf_wrapper.h"
 
 #if defined(_WIN32)
+  #ifndef NOMINMAX
+    #define NOMINMAX
+  #endif
   #define WIN32_LEAN_AND_MEAN
   #include <windows.h>
 #else
@@ -12,7 +15,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <chrono>
+#include <limits>
 #include <mutex>
+#include <random>
 #include <string>
 #include <unordered_map>
 
@@ -31,12 +36,19 @@ using LibHandle = void*;
 
 static LibHandle g_vendor = nullptr;
 static int g_is_open = 0;
+static int g_is_reading = 0;
 static char g_last_error[256] = "";
 static int g_last_error_code = UHF_ERR_OK;
 static int g_dedup_window_ms = 0;
 static int g_dedup_key_mode = 0; // 0 = EPC only, 1 = EPC + antenna
+static int g_rssi_min_dbm = std::numeric_limits<int>::min();
+static int g_rssi_max_dbm = std::numeric_limits<int>::max();
 static std::unordered_map<std::string, int64_t> g_dedup_cache;
 static std::mutex g_dedup_mutex;
+static const uint8_t kParamWorkMode = 0x02;
+static const uint8_t kWorkModeAnswer = 0x00;
+static const uint8_t kWorkModeActive = 0x01;
+static const uint8_t kWorkModeTrigger = 0x02;
 
 static const uint8_t kMaskSelectTemplate[] = {
   0x53, 0x57, 0x00, 0xCD, 0xFF, 0x2F, 0xC3, 0x55, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0xE2,
@@ -78,6 +90,10 @@ struct SpecialParamV2 {
 template <typename T>
 static T load_fn(const char* name);
 static int hex_to_bytes(const char* hex, uint8_t* out, int out_cap);
+static void bytes_to_hex(const uint8_t* data, int len, char* out, int out_cap);
+static int start_read_vendor(int set_error);
+static int stop_read_vendor(int set_error);
+static int ensure_work_mode(uint8_t mode, const char* mode_name);
 
 static void set_last_error(const char* msg, int code) {
   if (!msg || msg[0] == '\0') {
@@ -124,6 +140,68 @@ static void sleep_ms(int ms) {
 #else
   usleep(static_cast<useconds_t>(ms * 1000));
 #endif
+}
+
+static int start_read_vendor(int set_error) {
+  using Fn = int (VENDOR_CALL*)(uint8_t);
+  auto fn = load_fn<Fn>("SWHid_StartRead");
+  if (!fn) {
+    if (set_error) set_last_error("Missing SWHid_StartRead", UHF_ERR_VENDOR_MISSING);
+    return 0;
+  }
+  int ok = fn(0xFF) ? 1 : 0;
+  if (!ok && set_error) {
+    set_last_error("SWHid_StartRead failed", UHF_ERR_VENDOR_CALL_FAILED);
+  }
+  return ok;
+}
+
+static int stop_read_vendor(int set_error) {
+  using Fn = int (VENDOR_CALL*)(uint8_t);
+  auto fn = load_fn<Fn>("SWHid_StopRead");
+  if (!fn) {
+    if (set_error) set_last_error("Missing SWHid_StopRead", UHF_ERR_VENDOR_MISSING);
+    return 0;
+  }
+  int ok = fn(0xFF) ? 1 : 0;
+  if (!ok && set_error) {
+    set_last_error("SWHid_StopRead failed", UHF_ERR_VENDOR_CALL_FAILED);
+  }
+  return ok;
+}
+
+static int ensure_work_mode(uint8_t mode, const char* mode_name) {
+  using FnRead = int (VENDOR_CALL*)(uint8_t, uint8_t, uint8_t*);
+  using FnSet = int (VENDOR_CALL*)(uint8_t, uint8_t, uint8_t);
+  auto fn_set = load_fn<FnSet>("SWHid_SetDeviceOneParam");
+  if (!fn_set) {
+    set_last_error("Missing SWHid_SetDeviceOneParam", UHF_ERR_VENDOR_MISSING);
+    return 0;
+  }
+  if (g_is_reading && mode != kWorkModeActive) {
+    set_last_error("Cannot switch work mode while reading", UHF_ERR_ALREADY_READING);
+    return 0;
+  }
+  auto fn_read = load_fn<FnRead>("SWHid_ReadDeviceOneParam");
+  if (fn_read) {
+    uint8_t cur = 0xFF;
+    if (fn_read(0xFF, kParamWorkMode, &cur)) {
+      if (cur == mode) {
+        return 1;
+      }
+    }
+  }
+  if (!fn_set(0xFF, kParamWorkMode, mode)) {
+    if (mode_name) {
+      char msg[128];
+      snprintf(msg, sizeof(msg), "Failed to set %s", mode_name);
+      set_last_error(msg, UHF_ERR_VENDOR_CALL_FAILED);
+    } else {
+      set_last_error("Failed to set work mode", UHF_ERR_VENDOR_CALL_FAILED);
+    }
+    return 0;
+  }
+  return 1;
 }
 
 static int64_t now_ms() {
@@ -332,6 +410,41 @@ static int count_tags_once(int timeout_ms, int* out_count) {
   return 1;
 }
 
+static int read_tags_once(int timeout_ms, UHF_Tag* out_tags, int max_tags, int* out_count) {
+  if (!out_tags || max_tags <= 0 || !out_count) {
+    return 0;
+  }
+  *out_count = 0;
+  if (!UHF_ClearBuffer()) {
+    return 0;
+  }
+  if (!UHF_StartRead()) {
+    return 0;
+  }
+  if (timeout_ms < 0) timeout_ms = 0;
+  sleep_ms(timeout_ms);
+  UHF_StopRead();
+  return UHF_PopBufferDedup(out_tags, max_tags, out_count);
+}
+
+static int generate_random_epc_hex(char* out_hex, int out_len, int epc_bytes) {
+  if (!out_hex || out_len <= 0 || epc_bytes <= 0 || epc_bytes > UHF_MAX_EPC_BYTES) {
+    return 0;
+  }
+  if (out_len < (epc_bytes * 2 + 1)) {
+    return 0;
+  }
+  std::random_device rd;
+  std::mt19937 rng(rd());
+  std::uniform_int_distribution<int> dist(0, 255);
+  uint8_t buf[UHF_MAX_EPC_BYTES] = {0};
+  for (int i = 0; i < epc_bytes; ++i) {
+    buf[i] = static_cast<uint8_t>(dist(rng));
+  }
+  bytes_to_hex(buf, epc_bytes, out_hex, out_len);
+  return 1;
+}
+
 static int epc_hex_equal(const char* a, const char* b) {
   if (!a || !b) return 0;
   const char* pa = a;
@@ -417,6 +530,9 @@ static int write_tag_raw(uint8_t bank, uint8_t wordPtr,
       return 0;
     }
   }
+  if (!ensure_work_mode(kWorkModeAnswer, "AnswerMode")) {
+    return 0;
+  }
   uint8_t wordCount = static_cast<uint8_t>(dataLenBytes / 2);
   int ok = fn(0xFF, pwd, bank, wordPtr, wordCount, const_cast<uint8_t*>(data)) ? 1 : 0;
   if (!ok) {
@@ -442,6 +558,9 @@ static int write_epc_raw(const char* epcHex, const char* pwdHex,
   int epc_len = hex_to_bytes(epcHex, epc, sizeof(epc));
   if (epc_len <= 0 || (epc_len % 2) != 0) {
     set_last_error("Invalid EPC length (must be even bytes)", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  if (!ensure_work_mode(kWorkModeAnswer, "AnswerMode")) {
     return 0;
   }
   uint8_t pwd[4] = {0};
@@ -632,6 +751,7 @@ UHF_API void UHF_CALL UHF_Shutdown(void) {
     g_vendor = nullptr;
   }
   g_is_open = 0;
+  g_is_reading = 0;
 }
 
 UHF_API const char* UHF_CALL UHF_GetLastError(void) {
@@ -695,6 +815,7 @@ UHF_API int UHF_CALL UHF_Open(uint16_t index) {
   }
   int ok = fn_open(index) ? 1 : 0;
   g_is_open = ok;
+  g_is_reading = 0;
   if (!ok) {
     set_last_error("SWHid_OpenDevice failed", UHF_ERR_VENDOR_CALL_FAILED);
   }
@@ -708,12 +829,13 @@ UHF_API int UHF_CALL UHF_Close(void) {
     set_last_error("Missing SWHid_CloseDevice", UHF_ERR_VENDOR_MISSING);
     return 0;
   }
-  int ok = fn() ? 1 : 0;
+  // Vendor close often returns 0 even when the handle is actually released.
+  // Their official tool doesn't check this return, so we treat close as best-effort.
+  (void)fn();
   g_is_open = 0;
-  if (!ok) {
-    set_last_error("SWHid_CloseDevice failed", UHF_ERR_VENDOR_CALL_FAILED);
-  }
-  return ok;
+  g_is_reading = 0;
+  set_last_error("", UHF_ERR_OK);
+  return 1;
 }
 
 UHF_API int UHF_CALL UHF_IsReaderPresent(void) {
@@ -763,24 +885,55 @@ UHF_API int UHF_CALL UHF_GetInfo(UHF_DeviceInfo* outInfo) {
   return 1;
 }
 
-UHF_API int UHF_CALL UHF_StartRead(void) {
-  using Fn = int (VENDOR_CALL*)(uint8_t);
-  auto fn = load_fn<Fn>("SWHid_StartRead");
+UHF_API int UHF_CALL UHF_GetWorkMode(void) {
+  using Fn = int (VENDOR_CALL*)(uint8_t, uint8_t, uint8_t*);
+  auto fn = load_fn<Fn>("SWHid_ReadDeviceOneParam");
   if (!fn) {
-    set_last_error("Missing SWHid_StartRead", UHF_ERR_VENDOR_MISSING);
+    set_last_error("Missing SWHid_ReadDeviceOneParam", UHF_ERR_VENDOR_MISSING);
+    return -1;
+  }
+  uint8_t val = 0xFF;
+  if (!fn(0xFF, kParamWorkMode, &val)) {
+    set_last_error("SWHid_ReadDeviceOneParam failed", UHF_ERR_VENDOR_CALL_FAILED);
+    return -1;
+  }
+  return static_cast<int>(val);
+}
+
+UHF_API int UHF_CALL UHF_SetWorkModeAnswer(void) {
+  return ensure_work_mode(kWorkModeAnswer, "AnswerMode");
+}
+
+UHF_API int UHF_CALL UHF_SetWorkModeActive(void) {
+  return ensure_work_mode(kWorkModeActive, "ActiveMode");
+}
+
+UHF_API int UHF_CALL UHF_SetWorkModeTrigger(void) {
+  set_last_error("Trigger mode not supported by vendor software", UHF_ERR_NOT_SUPPORTED);
+  return 0;
+}
+
+UHF_API int UHF_CALL UHF_StartRead(void) {
+  if (g_is_reading) {
+    set_last_error("Read already started", UHF_ERR_ALREADY_READING);
     return 0;
   }
-  return fn(0xFF) ? 1 : 0;
+  if (!ensure_work_mode(kWorkModeActive, "ActiveMode")) {
+    return 0;
+  }
+  int ok = start_read_vendor(1);
+  if (ok) g_is_reading = 1;
+  return ok;
 }
 
 UHF_API int UHF_CALL UHF_StopRead(void) {
-  using Fn = int (VENDOR_CALL*)(uint8_t);
-  auto fn = load_fn<Fn>("SWHid_StopRead");
-  if (!fn) {
-    set_last_error("Missing SWHid_StopRead", UHF_ERR_VENDOR_MISSING);
+  if (!g_is_reading) {
+    set_last_error("Read not started", UHF_ERR_NOT_READING);
     return 0;
   }
-  return fn(0xFF) ? 1 : 0;
+  int ok = stop_read_vendor(1);
+  if (ok) g_is_reading = 0;
+  return ok;
 }
 
 UHF_API int UHF_CALL UHF_ClearBuffer(void) {
@@ -809,8 +962,17 @@ static int get_tag_buf(uint8_t* buf, int buf_len, int* out_len, int* out_count) 
     set_last_error("Invalid buffer", UHF_ERR_INVALID_ARG);
     return 0;
   }
+  *out_len = 0;
+  *out_count = 0;
   uint8_t ret = fn(buf, out_len, out_count);
-  return ret != 0 ? 1 : 0;
+  if (ret != 0) {
+    return 1;
+  }
+  if (!UHF_IsReaderPresent()) {
+    set_last_error("Reader not present", UHF_ERR_NO_DEVICE);
+    return 0;
+  }
+  return 1;
 }
 
 static int peek_or_pop(int dedup, int do_clear, int safe_cycle,
@@ -818,16 +980,25 @@ static int peek_or_pop(int dedup, int do_clear, int safe_cycle,
   uint8_t buf[65536];
   int total_len = 0;
   int tag_num = 0;
+  int did_stop = 0;
+  int was_reading = g_is_reading;
 
   if (safe_cycle) {
-    UHF_StopRead();
+    if (was_reading) {
+      if (stop_read_vendor(0)) {
+        g_is_reading = 0;
+        did_stop = 1;
+      }
+    }
   }
 
   int ok = get_tag_buf(buf, sizeof(buf), &total_len, &tag_num);
   if (!ok) {
     if (outCount) *outCount = 0;
     if (safe_cycle) {
-      UHF_StartRead();
+      if (was_reading && did_stop) {
+        if (start_read_vendor(0)) g_is_reading = 1;
+      }
     }
     return 0;
   }
@@ -838,7 +1009,9 @@ static int peek_or_pop(int dedup, int do_clear, int safe_cycle,
       UHF_ClearBuffer();
     }
     if (safe_cycle) {
-      UHF_StartRead();
+      if (was_reading && did_stop) {
+        if (start_read_vendor(0)) g_is_reading = 1;
+      }
     }
     return 1;
   }
@@ -848,7 +1021,9 @@ static int peek_or_pop(int dedup, int do_clear, int safe_cycle,
     UHF_ClearBuffer();
   }
   if (safe_cycle) {
-    UHF_StartRead();
+    if (was_reading && did_stop) {
+      if (start_read_vendor(0)) g_is_reading = 1;
+    }
   }
   return ok;
 }
@@ -913,11 +1088,17 @@ UHF_API int UHF_CALL UHF_PopBufferDedupFiltered(UHF_Tag* outTags, int maxTags, i
     return 0;
   }
   int window_ms = 0;
+  int rssi_min = std::numeric_limits<int>::min();
+  int rssi_max = std::numeric_limits<int>::max();
   {
     std::lock_guard<std::mutex> lock(g_dedup_mutex);
     window_ms = g_dedup_window_ms;
+    rssi_min = g_rssi_min_dbm;
+    rssi_max = g_rssi_max_dbm;
   }
-  if (window_ms <= 0) {
+  int filter_rssi = (rssi_min != std::numeric_limits<int>::min()) ||
+                    (rssi_max != std::numeric_limits<int>::max());
+  if (window_ms <= 0 && !filter_rssi) {
     return UHF_PopBufferDedup(outTags, maxTags, outCount);
   }
   UHF_Tag tmp[256];
@@ -929,10 +1110,24 @@ UHF_API int UHF_CALL UHF_PopBufferDedupFiltered(UHF_Tag* outTags, int maxTags, i
   if (!UHF_PopBufferDedup(tmp, cap, &count)) {
     return 0;
   }
+  if (window_ms <= 0) {
+    int out = 0;
+    for (int i = 0; i < count && out < maxTags; ++i) {
+      if (tmp[i].rssiDbm < rssi_min || tmp[i].rssiDbm > rssi_max) {
+        continue;
+      }
+      outTags[out++] = tmp[i];
+    }
+    *outCount = out;
+    return 1;
+  }
   int64_t now = now_ms();
   int out = 0;
   std::lock_guard<std::mutex> lock(g_dedup_mutex);
   for (int i = 0; i < count && out < maxTags; ++i) {
+    if (tmp[i].rssiDbm < rssi_min || tmp[i].rssiDbm > rssi_max) {
+      continue;
+    }
     std::string key = build_dedup_key(tmp[i]);
     auto it = g_dedup_cache.find(key);
     if (it != g_dedup_cache.end()) {
@@ -973,6 +1168,24 @@ UHF_API int UHF_CALL UHF_ReadOnce(int timeoutMs, UHF_Tag* outTags, int maxTags, 
   sleep_ms(timeoutMs);
   UHF_StopRead();
   return UHF_PopBufferDedupFiltered(outTags, maxTags, outCount);
+}
+
+UHF_API int UHF_CALL UHF_RssiFilterSet(int minDbm, int maxDbm) {
+  if (minDbm > maxDbm) {
+    set_last_error("minDbm must be <= maxDbm", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  std::lock_guard<std::mutex> lock(g_dedup_mutex);
+  g_rssi_min_dbm = minDbm;
+  g_rssi_max_dbm = maxDbm;
+  return 1;
+}
+
+UHF_API int UHF_CALL UHF_RssiFilterReset(void) {
+  std::lock_guard<std::mutex> lock(g_dedup_mutex);
+  g_rssi_min_dbm = std::numeric_limits<int>::min();
+  g_rssi_max_dbm = std::numeric_limits<int>::max();
+  return 1;
 }
 
 UHF_API int UHF_CALL UHF_GetPowerDbm(void) {
@@ -1152,6 +1365,9 @@ UHF_API int UHF_CALL UHF_ReadTag(uint8_t bank, uint8_t wordPtr, uint8_t wordCoun
     set_last_error("Output buffer too small", UHF_ERR_INVALID_ARG);
     return 0;
   }
+  if (!ensure_work_mode(kWorkModeAnswer, "AnswerMode")) {
+    return 0;
+  }
   int ok = fn(0xFF, pwd, bank, wordPtr, wordCount, outData) ? 1 : 0;
   if (ok) {
     *outBytesRead = bytes_needed;
@@ -1293,6 +1509,9 @@ UHF_API int UHF_CALL UHF_SelectEpc(const char* epcHex) {
     set_last_error("Invalid EPC hex", UHF_ERR_INVALID_ARG);
     return 0;
   }
+  if (!ensure_work_mode(kWorkModeAnswer, "AnswerMode")) {
+    return 0;
+  }
   uint8_t epc[12] = {0};
   int epc_len = hex_to_bytes(epcHex, epc, sizeof(epc));
   if (epc_len <= 0 || epc_len > 12) {
@@ -1314,6 +1533,9 @@ UHF_API int UHF_CALL UHF_SelectEpc(const char* epcHex) {
 }
 
 UHF_API int UHF_CALL UHF_ClearSelect(void) {
+  if (!ensure_work_mode(kWorkModeAnswer, "AnswerMode")) {
+    return 0;
+  }
   int sp_ok = set_mask_special_param(nullptr, 0, 0);
   uint8_t frame[sizeof(kMaskSelectTemplate)] = {0};
   if (!build_mask_frame(nullptr, 0, 0, frame, sizeof(frame))) {
@@ -1326,6 +1548,293 @@ UHF_API int UHF_CALL UHF_ClearSelect(void) {
   }
   set_last_error("Mask clear failed", UHF_ERR_VENDOR_CALL_FAILED);
   return 0;
+}
+
+UHF_API int UHF_CALL UHF_CalibrationTagPrepare(const char* desiredEpcHex, int writeNew,
+                                               char* outEpcHex, int outEpcLen) {
+  if (outEpcHex && outEpcLen <= 0) {
+    set_last_error("Invalid output buffer", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  char epcHex[UHF_MAX_EPC_HEX + 1] = {0};
+  if (writeNew) {
+    UHF_Tag tags[4];
+    int count = 0;
+    if (!read_tags_once(200, tags, 4, &count)) {
+      set_last_error("Read tags failed", UHF_ERR_VENDOR_CALL_FAILED);
+      return 0;
+    }
+    if (count <= 0) {
+      set_last_error("No tag detected", UHF_ERR_NO_TAG);
+      return 0;
+    }
+    if (count > 1) {
+      set_last_error("Multiple tags detected; remove extras", UHF_ERR_MULTI_TAG);
+      return 0;
+    }
+    if (desiredEpcHex && desiredEpcHex[0]) {
+      uint8_t tmp[UHF_MAX_EPC_BYTES] = {0};
+      int len = hex_to_bytes(desiredEpcHex, tmp, sizeof(tmp));
+      if (len <= 0 || (len % 2) != 0) {
+        set_last_error("Invalid EPC hex", UHF_ERR_INVALID_ARG);
+        return 0;
+      }
+#if defined(_MSC_VER)
+      strncpy_s(epcHex, desiredEpcHex, sizeof(epcHex) - 1);
+#else
+      strncpy(epcHex, desiredEpcHex, sizeof(epcHex) - 1);
+      epcHex[sizeof(epcHex) - 1] = '\0';
+#endif
+    } else {
+      if (!generate_random_epc_hex(epcHex, sizeof(epcHex), 12)) {
+        set_last_error("Failed to generate EPC", UHF_ERR_UNKNOWN);
+        return 0;
+      }
+    }
+    if (outEpcHex) {
+      size_t len = strlen(epcHex);
+      if (outEpcLen <= static_cast<int>(len)) {
+        set_last_error("Output buffer too small", UHF_ERR_INVALID_ARG);
+        return 0;
+      }
+    }
+    if (!UHF_WriteEpc(epcHex, "")) {
+      return 0;
+    }
+  } else {
+    UHF_Tag tags[8];
+    int count = 0;
+    if (!read_tags_once(200, tags, 8, &count)) {
+      set_last_error("Read tags failed", UHF_ERR_VENDOR_CALL_FAILED);
+      return 0;
+    }
+    if (count <= 0) {
+      set_last_error("No tag detected", UHF_ERR_NO_TAG);
+      return 0;
+    }
+    if (count > 1) {
+      set_last_error("Multiple tags detected; remove extras or write new EPC", UHF_ERR_MULTI_TAG);
+      return 0;
+    }
+#if defined(_MSC_VER)
+    strncpy_s(epcHex, tags[0].epc, sizeof(epcHex) - 1);
+#else
+    strncpy(epcHex, tags[0].epc, sizeof(epcHex) - 1);
+    epcHex[sizeof(epcHex) - 1] = '\0';
+#endif
+  }
+  if (outEpcHex) {
+    size_t len = strlen(epcHex);
+    if (outEpcLen <= static_cast<int>(len)) {
+      set_last_error("Output buffer too small", UHF_ERR_INVALID_ARG);
+      return 0;
+    }
+#if defined(_MSC_VER)
+    strncpy_s(outEpcHex, outEpcLen, epcHex, _TRUNCATE);
+#else
+    strncpy(outEpcHex, epcHex, static_cast<size_t>(outEpcLen - 1));
+    outEpcHex[outEpcLen - 1] = '\0';
+#endif
+  }
+  return 1;
+}
+
+UHF_API int UHF_CALL UHF_CalibrateByTag(const char* targetEpcHex,
+                                        int powerMinDbm, int powerMaxDbm, int powerStepDbm,
+                                        int readsPerStep, int powerMarginDbm,
+                                        int captureMs, int rssiMarginDbm,
+                                        int applySettings, UHF_CalibrationResult* outResult) {
+  if (!outResult) {
+    set_last_error("Invalid output pointer", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  memset(outResult, 0, sizeof(*outResult));
+  if (g_is_reading) {
+    set_last_error("Reader is already streaming", UHF_ERR_ALREADY_READING);
+    return 0;
+  }
+  if (powerStepDbm <= 0) {
+    set_last_error("Invalid power step", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  if (powerMinDbm < 0) powerMinDbm = 0;
+  if (powerMaxDbm > 26) powerMaxDbm = 26;
+  if (powerMinDbm > powerMaxDbm) {
+    set_last_error("Invalid power range/step", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  if (readsPerStep <= 0 || captureMs <= 0 || powerMarginDbm < 0 || rssiMarginDbm < 0) {
+    set_last_error("Invalid calibration parameters", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+
+  char targetHex[UHF_MAX_EPC_HEX + 1] = {0};
+  if (!targetEpcHex || !targetEpcHex[0]) {
+    UHF_Tag tags[4];
+    int count = 0;
+    if (!read_tags_once(200, tags, 4, &count)) {
+      set_last_error("Read tags failed", UHF_ERR_VENDOR_CALL_FAILED);
+      return 0;
+    }
+    if (count <= 0) {
+      set_last_error("No tag detected for calibration", UHF_ERR_NO_TAG);
+      return 0;
+    }
+    if (count > 1) {
+      set_last_error("Multiple tags detected; provide target EPC", UHF_ERR_MULTI_TAG);
+      return 0;
+    }
+#if defined(_MSC_VER)
+    strncpy_s(targetHex, tags[0].epc, sizeof(targetHex) - 1);
+#else
+    strncpy(targetHex, tags[0].epc, sizeof(targetHex) - 1);
+    targetHex[sizeof(targetHex) - 1] = '\0';
+#endif
+  } else {
+    uint8_t tmp[UHF_MAX_EPC_BYTES] = {0};
+    int len = hex_to_bytes(targetEpcHex, tmp, sizeof(tmp));
+    if (len <= 0 || (len % 2) != 0) {
+      set_last_error("Invalid target EPC hex", UHF_ERR_INVALID_ARG);
+      return 0;
+    }
+#if defined(_MSC_VER)
+    strncpy_s(targetHex, targetEpcHex, sizeof(targetHex) - 1);
+#else
+    strncpy(targetHex, targetEpcHex, sizeof(targetHex) - 1);
+    targetHex[sizeof(targetHex) - 1] = '\0';
+#endif
+  }
+
+  int prevPower = UHF_GetPowerDbm();
+  int selected = 0;
+  if (targetHex[0]) {
+    if (!UHF_SelectEpc(targetHex)) {
+      set_last_error("Select EPC failed", UHF_ERR_VENDOR_CALL_FAILED);
+      return 0;
+    }
+    selected = 1;
+  }
+
+  int minHits = readsPerStep / 2;
+  if (minHits < 1) minHits = 1;
+  int foundPower = -1;
+  for (int p = powerMinDbm; p <= powerMaxDbm; p += powerStepDbm) {
+    if (!UHF_SetPowerDbm(p)) {
+      set_last_error("SetPowerDbm failed during calibration", UHF_ERR_VENDOR_CALL_FAILED);
+      if (selected) UHF_ClearSelect();
+      if (prevPower >= 0) UHF_SetPowerDbm(prevPower);
+      return 0;
+    }
+    int hits = 0;
+    for (int i = 0; i < readsPerStep; ++i) {
+      UHF_Tag tags[32];
+      int count = 0;
+      if (!read_tags_once(120, tags, 32, &count)) {
+        continue;
+      }
+      for (int t = 0; t < count; ++t) {
+        if (!targetHex[0] || epc_hex_equal(tags[t].epc, targetHex)) {
+          hits++;
+          break;
+        }
+      }
+    }
+    if (hits >= minHits) {
+      foundPower = p;
+      break;
+    }
+  }
+
+  if (foundPower < 0) {
+    set_last_error("Calibration tag not detected in power range", UHF_ERR_CALIBRATION_FAILED);
+    if (selected) UHF_ClearSelect();
+    if (prevPower >= 0) UHF_SetPowerDbm(prevPower);
+    return 0;
+  }
+
+  int recommendedPower = foundPower + powerMarginDbm;
+  if (recommendedPower > powerMaxDbm) recommendedPower = powerMaxDbm;
+  if (recommendedPower < powerMinDbm) recommendedPower = powerMinDbm;
+  if (!UHF_SetPowerDbm(recommendedPower)) {
+    set_last_error("SetPowerDbm failed", UHF_ERR_VENDOR_CALL_FAILED);
+    if (selected) UHF_ClearSelect();
+    if (prevPower >= 0) UHF_SetPowerDbm(prevPower);
+    return 0;
+  }
+
+  if (!UHF_ClearBuffer()) {
+    set_last_error("ClearBuffer failed", UHF_ERR_VENDOR_CALL_FAILED);
+    if (selected) UHF_ClearSelect();
+    if (prevPower >= 0) UHF_SetPowerDbm(prevPower);
+    return 0;
+  }
+  if (!UHF_StartRead()) {
+    set_last_error("StartRead failed", UHF_ERR_VENDOR_CALL_FAILED);
+    if (selected) UHF_ClearSelect();
+    if (prevPower >= 0) UHF_SetPowerDbm(prevPower);
+    return 0;
+  }
+  sleep_ms(captureMs);
+  UHF_StopRead();
+
+  UHF_Tag tags[512];
+  int count = 0;
+  if (!UHF_PopBufferAll(tags, 512, &count)) {
+    set_last_error("PopBufferAll failed", UHF_ERR_VENDOR_CALL_FAILED);
+    if (selected) UHF_ClearSelect();
+    if (prevPower >= 0) UHF_SetPowerDbm(prevPower);
+    return 0;
+  }
+
+  int sampleCount = 0;
+  int rssiMin = 0;
+  int rssiMax = 0;
+  int64_t rssiSum = 0;
+  for (int i = 0; i < count; ++i) {
+    if (targetHex[0] && !epc_hex_equal(tags[i].epc, targetHex)) {
+      continue;
+    }
+    if (sampleCount == 0) {
+      rssiMin = tags[i].rssiDbm;
+      rssiMax = tags[i].rssiDbm;
+    } else {
+      if (tags[i].rssiDbm < rssiMin) rssiMin = tags[i].rssiDbm;
+      if (tags[i].rssiDbm > rssiMax) rssiMax = tags[i].rssiDbm;
+    }
+    rssiSum += tags[i].rssiDbm;
+    sampleCount++;
+  }
+  if (sampleCount <= 0) {
+    set_last_error("No RSSI samples captured", UHF_ERR_CALIBRATION_FAILED);
+    if (selected) UHF_ClearSelect();
+    if (prevPower >= 0) UHF_SetPowerDbm(prevPower);
+    return 0;
+  }
+  int rssiAvg = static_cast<int>(rssiSum / sampleCount);
+  int rssiFilterMin = rssiMin - rssiMarginDbm;
+  int rssiFilterMax = rssiMax + rssiMarginDbm;
+
+  if (applySettings) {
+    UHF_RssiFilterSet(rssiFilterMin, rssiFilterMax);
+  } else if (prevPower >= 0) {
+    UHF_SetPowerDbm(prevPower);
+  }
+
+  if (selected) {
+    UHF_ClearSelect();
+  }
+
+  outResult->minDetectPowerDbm = foundPower;
+  outResult->recommendedPowerDbm = recommendedPower;
+  outResult->powerMarginDbm = powerMarginDbm;
+  outResult->rssiMinDbm = rssiMin;
+  outResult->rssiMaxDbm = rssiMax;
+  outResult->rssiAvgDbm = rssiAvg;
+  outResult->rssiMarginDbm = rssiMarginDbm;
+  outResult->rssiFilterMinDbm = rssiFilterMin;
+  outResult->rssiFilterMaxDbm = rssiFilterMax;
+  outResult->sampleCount = sampleCount;
+  return 1;
 }
 
 static int parse_pwd_hex(const char* pwdHex, uint8_t* out4) {
@@ -1357,6 +1866,9 @@ UHF_API int UHF_CALL UHF_LockTag(uint8_t lockType, uint8_t lockMem, const char* 
   uint8_t pwd[4];
   if (!parse_pwd_hex(pwdHex, pwd)) {
     set_last_error("Invalid password hex (expected 4 bytes)", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  if (!ensure_work_mode(kWorkModeAnswer, "AnswerMode")) {
     return 0;
   }
   uint8_t lockCfg = static_cast<uint8_t>((lockMem << 4) | (lockType & 0x0F));

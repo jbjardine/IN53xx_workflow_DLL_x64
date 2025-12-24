@@ -25,8 +25,11 @@ The goal is to make RFID operations **fast to integrate** (WinDev, C/C++, .NET, 
 - **Safe writes**: single‑tag check + read‑back verification (override with `--force`)
 - **Select + Write multi‑tag**: mask selection is enforced for targeted writes
 - **Anti‑double read window**: optional time window to avoid repeat EPC returns
+- **RSSI filter (software)**: filter read results by RSSI range
+- **Auto‑calibration**: power sweep + RSSI window, optional apply
 - **GPIO/Relay** support when available in the vendor DLL
 - **Robust error reporting**: `UHF_GetLastError()` + `UHF_GetLastErrorCode()`
+- **WorkMode handled automatically**: user‑friendly `UHF_*` calls set Answer/Active as needed (raw `SWHid_*` calls are untouched)
 
 ## Requirements
 
@@ -68,6 +71,9 @@ Outputs (Release):
 UhfWrapperCli.exe --friendly status
 UhfWrapperCli.exe --friendly read-once
 UhfWrapperCli.exe --friendly read-stream --duration 2000
+UhfWrapperCli.exe --friendly calib-prepare
+UhfWrapperCli.exe --friendly calib-run --calib-max 10 --apply
+UhfWrapperCli.exe --friendly rssi-filter --rssi-min -65 --rssi-max -40
 
 # Select a tag and write EPC (multi‑tag safe)
 UhfWrapperCli.exe --friendly select-epc <EPC_HEX>
@@ -91,6 +97,26 @@ UHF_DedupKeySet(0);         // 0=EPC only, 1=EPC+antenna
 UHF_PopBufferDedupFiltered(tags, 256, &count);
 ```
 
+RSSI filter (software):
+
+```c
+UHF_RssiFilterSet(-65, -40); // keep only tags in [-65..-40] dBm
+UHF_RssiFilterReset();       // disable filter
+```
+
+Auto‑calibration (power + RSSI window):
+
+```c
+char calibEpc[128] = {0};
+UHF_CalibrationResult res{};
+
+// Use existing single tag as calibration target
+UHF_CalibrationTagPrepare(nullptr, 0, calibEpc, sizeof(calibEpc));
+
+// Sweep power and capture RSSI, then apply settings
+UHF_CalibrateByTag(calibEpc, 5, 30, 1, 5, 3, 8000, 3, 1, &res);
+```
+
 ## API Highlights
 
 - **Connection**: `UHF_Init`, `UHF_Open`, `UHF_Close`, `UHF_IsOpen`, `UHF_IsConnected`
@@ -100,6 +126,8 @@ UHF_PopBufferDedupFiltered(tags, 256, &count);
 - **Dedup window**: `UHF_DedupWindowSet`, `UHF_DedupWindowReset`, `UHF_DedupKeySet`,
   `UHF_PopBufferDedupFiltered`
 - **Read once (custom)**: `UHF_ReadOnce`
+- **RSSI filter**: `UHF_RssiFilterSet`, `UHF_RssiFilterReset`
+- **Calibration**: `UHF_CalibrationTagPrepare`, `UHF_CalibrateByTag`
 - **Power/Frequency**: `UHF_GetPowerDbm/Pct`, `UHF_SetPowerDbm/Pct`, `UHF_GetFreq`, `UHF_SetFreq`
 - **Whitelist**: `UHF_WhitelistCount`, `UHF_WhitelistGetRaw/Hex`, `UHF_WhitelistAddEpc`,
   `UHF_WhitelistRemoveEpc`, `UHF_WhitelistClear`
@@ -143,9 +171,28 @@ Minimal P/Invoke projects are provided:
 ## Documentation
 
 - User guide: `docs/USER_GUIDE.md`
-- Change log: `history.md`
+- Changelog: `CHANGELOG.md`
+- Project memory (decisions, bugs, key facts): `docs/project_notes/`
 - Structure: `docs/STRUCTURE.md`
 - Architecture: `docs/ARCHITECTURE.md`
+- Legacy notes: `history.md`
+
+## Reporting Issues
+
+Found a bug or have a feature request? Please open an issue:
+
+https://github.com/jbjardine/IN53xx_workflow_DLL_x64/issues
+
+When reporting, include the reader model, OS version, and the exact command/API call used.
+
+## Contributing
+
+Contributions are welcome:
+
+1. Fork the repository
+2. Create a feature branch
+3. Commit changes with clear messages
+4. Open a Pull Request
 
 ## License
 

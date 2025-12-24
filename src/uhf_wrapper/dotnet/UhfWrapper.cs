@@ -31,6 +31,21 @@ namespace UhfWrapper
         public string Sn;
     }
 
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    public struct UHF_CalibrationResult
+    {
+        public int MinDetectPowerDbm;
+        public int RecommendedPowerDbm;
+        public int PowerMarginDbm;
+        public int RssiMinDbm;
+        public int RssiMaxDbm;
+        public int RssiAvgDbm;
+        public int RssiMarginDbm;
+        public int RssiFilterMinDbm;
+        public int RssiFilterMaxDbm;
+        public int SampleCount;
+    }
+
     public static class Native
     {
         private const string Dll = "UhfWrapper.dll";
@@ -84,6 +99,18 @@ namespace UhfWrapper
         public static extern int UHF_GetInfo(ref UHF_DeviceInfo info);
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_GetWorkMode();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_SetWorkModeAnswer();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_SetWorkModeActive();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_SetWorkModeTrigger();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int UHF_StartRead();
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
@@ -121,6 +148,15 @@ namespace UhfWrapper
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int UHF_PopBufferDedupFiltered([Out] UHF_Tag[] outTags, int maxTags, out int outCount);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_ReadOnce(int timeoutMs, [Out] UHF_Tag[] outTags, int maxTags, out int outCount);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_RssiFilterSet(int minDbm, int maxDbm);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_RssiFilterReset();
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int UHF_GetPowerDbm();
@@ -190,6 +226,17 @@ namespace UhfWrapper
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int UHF_ClearSelect();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
+        public static extern int UHF_CalibrationTagPrepare(string desiredEpcHex, int writeNew,
+                                                           StringBuilder outEpcHex, int outEpcLen);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
+        public static extern int UHF_CalibrateByTag(string targetEpcHex,
+                                                    int powerMinDbm, int powerMaxDbm, int powerStepDbm,
+                                                    int readsPerStep, int powerMarginDbm,
+                                                    int captureMs, int rssiMarginDbm,
+                                                    int applySettings, out UHF_CalibrationResult result);
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
         public static extern int UHF_LockTag(byte lockType, byte lockMem, string pwdHex);

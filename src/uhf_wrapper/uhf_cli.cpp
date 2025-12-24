@@ -30,6 +30,22 @@ struct CliOptions {
   char target_epc[UHF_MAX_EPC_HEX + 1] = {0};
   int target_epc_len = 0;
   int force_multi = 0;
+  char calib_epc[UHF_MAX_EPC_HEX + 1] = {0};
+  int calib_epc_len = 0;
+  int calib_min = 5;
+  int calib_max = 26;
+  int calib_step = 1;
+  int calib_reads = 5;
+  int calib_pwr_margin = 3;
+  int calib_rssi_margin = 3;
+  int calib_capture = 8000;
+  int calib_apply = 0;
+  int calib_keep = 0;
+  int rssi_set_min = 0;
+  int rssi_set_max = 0;
+  int rssi_set_has_min = 0;
+  int rssi_set_has_max = 0;
+  int rssi_set_reset = 0;
 };
 
 static void usage() {
@@ -50,6 +66,19 @@ static void usage() {
   printf("  --antenna <n>\n\n");
   printf("  --target <epcHex> (write/write-epc target selection)\n");
   printf("  --force           (allow write if multiple tags detected)\n\n");
+  printf("  --calib-epc <hex>  (calibration target EPC)\n");
+  printf("  --calib-min <dbm>  (calibration power min)\n");
+  printf("  --calib-max <dbm>  (calibration power max)\n");
+  printf("  --calib-step <dbm> (calibration power step)\n");
+  printf("  --calib-reads <n>  (reads per step)\n");
+  printf("  --calib-pwr-margin <dbm>\n");
+  printf("  --calib-rssi-margin <dbm>\n");
+  printf("  --calib-capture <ms>\n");
+  printf("  --apply            (apply calibration settings)\n");
+  printf("  --keep             (calib-prepare: keep existing EPC)\n");
+  printf("  --rssi-min <dbm>    (rssi-filter set)\n");
+  printf("  --rssi-max <dbm>    (rssi-filter set)\n");
+  printf("  --rssi-reset        (rssi-filter reset)\n\n");
 
   printf("Commands:\n");
   printf("  count\n");
@@ -70,6 +99,7 @@ static void usage() {
   printf("  read-once\n");
   printf("  read-count <n>\n");
   printf("  read-stream\n");
+  printf("  buffer-test        (start read, wait, pop+clear, stop)\n");
   printf("  power-get\n");
   printf("  power-set <dbm>\n");
   printf("  power-get-pct\n");
@@ -91,6 +121,9 @@ static void usage() {
   printf("  read <bank> <wordPtr> <wordCount> <pwdHex>\n");
   printf("  write <bank> <wordPtr> <hexData> <pwdHex>\n");
   printf("  write-epc <epcHex> <pwdHex>\n");
+  printf("  calib-prepare       (write or keep calibration EPC)\n");
+  printf("  calib-run           (power + RSSI calibration)\n");
+  printf("  rssi-filter         (set/reset software RSSI filter)\n");
   printf("  lock <lockType> <lockMem> <pwdHex>\n");
   printf("  whitelist-count\n");
   printf("  whitelist-get <index>\n");
@@ -437,6 +470,51 @@ int main(int argc, char** argv) {
     } else if (strcmp(a, "--force") == 0) {
       opt.force_multi = 1;
       ++argi;
+    } else if (strcmp(a, "--calib-epc") == 0 && argi + 1 < argc) {
+      opt.calib_epc_len = normalize_hex(argv[++argi], opt.calib_epc, sizeof(opt.calib_epc));
+      if (opt.calib_epc_len <= 0 || (opt.calib_epc_len % 2) != 0) {
+        printf("Invalid calibration EPC\n");
+        return 1;
+      }
+      ++argi;
+    } else if (strcmp(a, "--calib-min") == 0 && argi + 1 < argc) {
+      opt.calib_min = atoi(argv[++argi]);
+      ++argi;
+    } else if (strcmp(a, "--calib-max") == 0 && argi + 1 < argc) {
+      opt.calib_max = atoi(argv[++argi]);
+      ++argi;
+    } else if (strcmp(a, "--calib-step") == 0 && argi + 1 < argc) {
+      opt.calib_step = atoi(argv[++argi]);
+      ++argi;
+    } else if (strcmp(a, "--calib-reads") == 0 && argi + 1 < argc) {
+      opt.calib_reads = atoi(argv[++argi]);
+      ++argi;
+    } else if (strcmp(a, "--calib-pwr-margin") == 0 && argi + 1 < argc) {
+      opt.calib_pwr_margin = atoi(argv[++argi]);
+      ++argi;
+    } else if (strcmp(a, "--calib-rssi-margin") == 0 && argi + 1 < argc) {
+      opt.calib_rssi_margin = atoi(argv[++argi]);
+      ++argi;
+    } else if (strcmp(a, "--calib-capture") == 0 && argi + 1 < argc) {
+      opt.calib_capture = atoi(argv[++argi]);
+      ++argi;
+    } else if (strcmp(a, "--apply") == 0) {
+      opt.calib_apply = 1;
+      ++argi;
+    } else if (strcmp(a, "--keep") == 0) {
+      opt.calib_keep = 1;
+      ++argi;
+    } else if (strcmp(a, "--rssi-min") == 0 && argi + 1 < argc) {
+      opt.rssi_set_min = atoi(argv[++argi]);
+      opt.rssi_set_has_min = 1;
+      ++argi;
+    } else if (strcmp(a, "--rssi-max") == 0 && argi + 1 < argc) {
+      opt.rssi_set_max = atoi(argv[++argi]);
+      opt.rssi_set_has_max = 1;
+      ++argi;
+    } else if (strcmp(a, "--rssi-reset") == 0) {
+      opt.rssi_set_reset = 1;
+      ++argi;
     } else if (strcmp(a, "--help") == 0 || strcmp(a, "-h") == 0) {
       usage();
       return 0;
@@ -534,7 +612,7 @@ int main(int argc, char** argv) {
              strcmp(cmd, "stop") == 0 || strcmp(cmd, "buffer-clear") == 0 ||
              strncmp(cmd, "peek", 4) == 0 || strncmp(cmd, "pop", 3) == 0 ||
              strcmp(cmd, "read-once") == 0 || strcmp(cmd, "read-count") == 0 ||
-             strcmp(cmd, "read-stream") == 0 ||
+             strcmp(cmd, "read-stream") == 0 || strcmp(cmd, "buffer-test") == 0 ||
              strcmp(cmd, "power-get") == 0 || strcmp(cmd, "power-set") == 0 ||
              strcmp(cmd, "power-get-pct") == 0 || strcmp(cmd, "power-set-pct") == 0 ||
              strcmp(cmd, "power-set-preset") == 0 ||
@@ -546,7 +624,8 @@ int main(int argc, char** argv) {
              strcmp(cmd, "freq-set-region") == 0 ||
              strcmp(cmd, "select-epc") == 0 || strcmp(cmd, "select-clear") == 0 ||
              strcmp(cmd, "read") == 0 || strcmp(cmd, "write") == 0 ||
-             strcmp(cmd, "write-epc") == 0 ||
+             strcmp(cmd, "write-epc") == 0 || strcmp(cmd, "calib-prepare") == 0 ||
+             strcmp(cmd, "calib-run") == 0 || strcmp(cmd, "rssi-filter") == 0 ||
              strcmp(cmd, "lock") == 0 ||
              strcmp(cmd, "whitelist-count") == 0 || strcmp(cmd, "whitelist-get") == 0 ||
              strcmp(cmd, "whitelist-add") == 0 || strcmp(cmd, "whitelist-del") == 0 ||
@@ -682,10 +761,12 @@ int main(int argc, char** argv) {
         int printed = 0;
         int csv_header_done = 0;
         auto start = std::chrono::steady_clock::now();
+        CliOptions loop_opt = opt;
+        loop_opt.safe = 1;
         while (printed < target) {
           UHF_Tag tags[256];
           int count = 0;
-          pop_tags(tags, 256, &count, opt);
+          pop_tags(tags, 256, &count, loop_opt);
           for (int i = 0; i < count && printed < target; ++i) {
             if (!tag_matches(&tags[i], opt)) continue;
             print_tag(&tags[i], opt, &csv_header_done);
@@ -720,13 +801,15 @@ int main(int argc, char** argv) {
     } else {
       int csv_header_done = 0;
       auto start = std::chrono::steady_clock::now();
+      CliOptions loop_opt = opt;
+      loop_opt.safe = 1;
       if (opt.friendly && opt.out == OUT_TEXT) {
         printf("Streaming started.\n");
       }
       while (1) {
         UHF_Tag tags[256];
         int count = 0;
-        pop_tags(tags, 256, &count, opt);
+        pop_tags(tags, 256, &count, loop_opt);
         for (int i = 0; i < count; ++i) {
           if (!tag_matches(&tags[i], opt)) continue;
           print_tag(&tags[i], opt, &csv_header_done);
@@ -741,6 +824,36 @@ int main(int argc, char** argv) {
       UHF_StopRead();
       if (opt.friendly && opt.out == OUT_TEXT) {
         printf("Streaming ended.\n");
+      }
+    }
+  } else if (strcmp(cmd, "buffer-test") == 0) {
+    int ok = UHF_StartRead();
+    if (!ok) {
+      if (opt.friendly) {
+        print_friendly_ok("Buffer test", 0);
+        printf("Error: %s\n", UHF_GetLastError());
+      } else {
+        printf("StartRead failed: %s\n", UHF_GetLastError());
+      }
+      exit_code = 1;
+    } else {
+      int wait_ms = opt.duration_ms > 0 ? opt.duration_ms : 10000;
+      sleep_ms(wait_ms);
+      UHF_StopRead();
+      UHF_Tag tags[256];
+      int count = 0;
+      int ok_pop = pop_tags(tags, 256, &count, opt);
+      int csv_header_done = 0;
+      for (int i = 0; i < count; ++i) {
+        if (!tag_matches(&tags[i], opt)) continue;
+        print_tag(&tags[i], opt, &csv_header_done);
+      }
+      int ok_clear = UHF_ClearBuffer();
+      if (opt.friendly && opt.out == OUT_TEXT) {
+        print_friendly_ok("Buffer test", ok && ok_pop && ok_clear);
+        print_friendly_int("Tags read", count);
+      } else if (!ok_pop) {
+        printf("Pop buffer failed: %s\n", UHF_GetLastError());
       }
     }
   } else if (strcmp(cmd, "power-get") == 0) {
@@ -1047,6 +1160,63 @@ write_done:
         exit_code = 1;
       }
     }
+  } else if (strcmp(cmd, "calib-prepare") == 0) {
+    char outEpc[UHF_MAX_EPC_HEX + 1] = {0};
+    const char* epc = opt.calib_epc_len > 0 ? opt.calib_epc : nullptr;
+    int writeNew = opt.calib_keep ? 0 : 1;
+    int ok = UHF_CalibrationTagPrepare(epc, writeNew, outEpc, sizeof(outEpc));
+    if (opt.friendly) {
+      print_friendly_ok("Calibration tag", ok);
+      if (ok) printf("EPC: %s\n", outEpc);
+      else printf("Error: %s\n", UHF_GetLastError());
+    } else {
+      if (ok) printf("Calibration EPC: %s\n", outEpc);
+      else printf("Calibration tag failed: %s\n", UHF_GetLastError());
+    }
+    if (!ok) exit_code = 1;
+  } else if (strcmp(cmd, "calib-run") == 0) {
+    const char* epc = opt.calib_epc_len > 0 ? opt.calib_epc : nullptr;
+    UHF_CalibrationResult res{};
+    int ok = UHF_CalibrateByTag(epc, opt.calib_min, opt.calib_max, opt.calib_step,
+                                opt.calib_reads, opt.calib_pwr_margin,
+                                opt.calib_capture, opt.calib_rssi_margin,
+                                opt.calib_apply, &res);
+    if (opt.friendly) {
+      print_friendly_ok("Calibration", ok);
+    } else {
+      printf("Calibration: %s\n", ok ? "OK" : "FAILED");
+    }
+    if (ok) {
+      printf("Min detect power: %d dBm\n", res.minDetectPowerDbm);
+      printf("Recommended power: %d dBm (margin %d)\n", res.recommendedPowerDbm, res.powerMarginDbm);
+      printf("RSSI min/max/avg: %d / %d / %d dBm\n", res.rssiMinDbm, res.rssiMaxDbm, res.rssiAvgDbm);
+      printf("RSSI filter: %d .. %d dBm (margin %d)\n",
+             res.rssiFilterMinDbm, res.rssiFilterMaxDbm, res.rssiMarginDbm);
+      printf("Samples: %d\n", res.sampleCount);
+      if (opt.calib_apply) printf("Applied: power + RSSI filter\n");
+    } else {
+      printf("Error: %s\n", UHF_GetLastError());
+      exit_code = 1;
+    }
+  } else if (strcmp(cmd, "rssi-filter") == 0) {
+    int ok = 0;
+    if (opt.rssi_set_reset) {
+      ok = UHF_RssiFilterReset();
+    } else if (opt.rssi_set_has_min && opt.rssi_set_has_max) {
+      ok = UHF_RssiFilterSet(opt.rssi_set_min, opt.rssi_set_max);
+    } else {
+      printf("Missing --rssi-min/--rssi-max or --rssi-reset\n");
+      exit_code = 1;
+      ok = 0;
+    }
+    if (opt.friendly) {
+      print_friendly_ok("RSSI filter", ok);
+      if (!ok) printf("Error: %s\n", UHF_GetLastError());
+    } else if (ok) {
+      if (opt.rssi_set_reset) printf("RSSI filter reset\n");
+      else printf("RSSI filter set: %d..%d dBm\n", opt.rssi_set_min, opt.rssi_set_max);
+    }
+    if (!ok) exit_code = 1;
   } else if (strcmp(cmd, "lock") == 0) {
     if (argi + 2 >= argc) {
       printf("Missing args: lock <lockType> <lockMem> <pwdHex>\n");

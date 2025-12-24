@@ -37,6 +37,10 @@ Codes principaux :
 - `UHF_ERR_NO_DEVICE` (-8)
 - `UHF_ERR_MULTI_TAG` (-9)
 - `UHF_ERR_VERIFY_FAILED` (-10)
+- `UHF_ERR_ALREADY_READING` (-11)
+- `UHF_ERR_NOT_READING` (-12)
+- `UHF_ERR_NO_TAG` (-13)
+- `UHF_ERR_CALIBRATION_FAILED` (-14)
 
 ## Build (Windows)
 ```
@@ -69,6 +73,9 @@ Base :
 UhfWrapperCli.exe --friendly status
 UhfWrapperCli.exe --friendly read-once
 UhfWrapperCli.exe --friendly read-stream --duration 2000
+UhfWrapperCli.exe --friendly calib-prepare
+UhfWrapperCli.exe --friendly calib-run --calib-max 10 --apply
+UhfWrapperCli.exe --friendly rssi-filter --rssi-min -65 --rssi-max -40
 ```
 
 Buffer :
@@ -89,6 +96,30 @@ Lecture ponctuelle (custom, sans G2) :
 ```
 UHF_ReadOnce(300, tags, 256, &count)
 ```
+
+Filtre RSSI (software) :
+```
+UHF_RssiFilterSet(-65, -40)   // n'accepte que [-65..-40] dBm
+UHF_RssiFilterReset()         // desactive le filtre
+```
+Le filtre s'applique a `UHF_PopBufferDedupFiltered` et `UHF_ReadOnce`.
+
+Auto‑calibration (puissance + RSSI) :
+```
+char calibEpc[128] = {0};
+UHF_CalibrationResult res{};
+
+// Garde l'EPC du tag present (1 seul tag requis)
+UHF_CalibrationTagPrepare(nullptr, 0, calibEpc, sizeof(calibEpc));
+
+// Balaye la puissance puis capture RSSI (applique les reglages)
+UHF_CalibrateByTag(calibEpc, 5, 30, 1, 5, 3, 8000, 3, 1, &res);
+```
+Notes :
+- `UHF_CalibrationTagPrepare(..., writeNew=1)` permet d'ecrire un EPC de calibration
+  (EPC fourni ou genere aleatoirement).
+- `UHF_CalibrateByTag` peut appliquer directement la puissance + filtre RSSI (`applySettings=1`)
+  ou juste renvoyer les valeurs (`applySettings=0`).
 
 Selection (cibler un tag) :
 ```
@@ -144,6 +175,8 @@ UhfWrapperCli.exe --friendly module-cmd <cmdHex> [payloadHex]
 - Dedup : `UHF_DedupWindowSet`, `UHF_DedupWindowReset`, `UHF_DedupKeySet`,
   `UHF_PopBufferDedupFiltered`
 - Read once : `UHF_ReadOnce`
+- Filtre RSSI : `UHF_RssiFilterSet`, `UHF_RssiFilterReset`
+- Calibration : `UHF_CalibrationTagPrepare`, `UHF_CalibrateByTag`
 - Puissance : `UHF_GetPowerDbm`, `UHF_SetPowerDbm`, `UHF_GetPowerPct`, `UHF_SetPowerPct`
 - Frequence : `UHF_GetFreq`, `UHF_SetFreq`
 - GPIO : `UHF_RelayOn/Off`, `UHF_Relay2On/Off`, `UHF_Out1On/Off`, `UHF_Out2On/Off`

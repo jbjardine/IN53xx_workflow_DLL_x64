@@ -48,6 +48,19 @@ typedef struct UHF_DeviceInfo {
   char sn[32];
 } UHF_DeviceInfo;
 
+typedef struct UHF_CalibrationResult {
+  int32_t minDetectPowerDbm;
+  int32_t recommendedPowerDbm;
+  int32_t powerMarginDbm;
+  int32_t rssiMinDbm;
+  int32_t rssiMaxDbm;
+  int32_t rssiAvgDbm;
+  int32_t rssiMarginDbm;
+  int32_t rssiFilterMinDbm;
+  int32_t rssiFilterMaxDbm;
+  int32_t sampleCount;
+} UHF_CalibrationResult;
+
 #define UHF_ERR_OK 0
 #define UHF_ERR_UNKNOWN -1
 #define UHF_ERR_INVALID_ARG -2
@@ -59,6 +72,10 @@ typedef struct UHF_DeviceInfo {
 #define UHF_ERR_NO_DEVICE -8
 #define UHF_ERR_MULTI_TAG -9
 #define UHF_ERR_VERIFY_FAILED -10
+#define UHF_ERR_ALREADY_READING -11
+#define UHF_ERR_NOT_READING -12
+#define UHF_ERR_NO_TAG -13
+#define UHF_ERR_CALIBRATION_FAILED -14
 
 #if defined(_MSC_VER)
   #pragma pack(pop)
@@ -79,6 +96,10 @@ UHF_API int UHF_CALL UHF_IsOpen(void);
 UHF_API int UHF_CALL UHF_IsConnected(void);
 
 UHF_API int UHF_CALL UHF_GetInfo(UHF_DeviceInfo* outInfo);
+UHF_API int UHF_CALL UHF_GetWorkMode(void); // 0=Answer, 1=Active, 2=Trigger (if supported)
+UHF_API int UHF_CALL UHF_SetWorkModeAnswer(void);
+UHF_API int UHF_CALL UHF_SetWorkModeActive(void);
+UHF_API int UHF_CALL UHF_SetWorkModeTrigger(void); // may be unsupported
 
 UHF_API int UHF_CALL UHF_StartRead(void);
 UHF_API int UHF_CALL UHF_StopRead(void);
@@ -95,6 +116,8 @@ UHF_API int UHF_CALL UHF_DedupWindowReset(void);
 UHF_API int UHF_CALL UHF_DedupKeySet(int mode); // 0 = EPC only, 1 = EPC + antenna
 UHF_API int UHF_CALL UHF_PopBufferDedupFiltered(UHF_Tag* outTags, int maxTags, int* outCount);
 UHF_API int UHF_CALL UHF_ReadOnce(int timeoutMs, UHF_Tag* outTags, int maxTags, int* outCount);
+UHF_API int UHF_CALL UHF_RssiFilterSet(int minDbm, int maxDbm);
+UHF_API int UHF_CALL UHF_RssiFilterReset(void);
 
 UHF_API int UHF_CALL UHF_GetPowerDbm(void);
 UHF_API int UHF_CALL UHF_SetPowerDbm(int dbm);
@@ -127,6 +150,13 @@ UHF_API int UHF_CALL UHF_WriteTagSelected(const char* targetEpcHex, uint8_t bank
                                           const char* pwdHex, int forceMulti);
 UHF_API int UHF_CALL UHF_SelectEpc(const char* epcHex);
 UHF_API int UHF_CALL UHF_ClearSelect(void);
+UHF_API int UHF_CALL UHF_CalibrationTagPrepare(const char* desiredEpcHex, int writeNew,
+                                               char* outEpcHex, int outEpcLen);
+UHF_API int UHF_CALL UHF_CalibrateByTag(const char* targetEpcHex,
+                                        int powerMinDbm, int powerMaxDbm, int powerStepDbm,
+                                        int readsPerStep, int powerMarginDbm,
+                                        int captureMs, int rssiMarginDbm,
+                                        int applySettings, UHF_CalibrationResult* outResult);
 
 // NOTE: lockType/lockMem are combined into a single lockCfg byte when possible.
 UHF_API int UHF_CALL UHF_LockTag(uint8_t lockType, uint8_t lockMem, const char* pwdHex);

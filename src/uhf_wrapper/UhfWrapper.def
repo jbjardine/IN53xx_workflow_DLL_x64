@@ -12,6 +12,10 @@ EXPORTS
   UHF_IsOpen
   UHF_IsConnected
   UHF_GetInfo
+  UHF_GetWorkMode
+  UHF_SetWorkModeAnswer
+  UHF_SetWorkModeActive
+  UHF_SetWorkModeTrigger
   UHF_StartRead
   UHF_StopRead
   UHF_ClearBuffer
@@ -25,6 +29,9 @@ EXPORTS
   UHF_DedupWindowReset
   UHF_DedupKeySet
   UHF_PopBufferDedupFiltered
+  UHF_ReadOnce
+  UHF_RssiFilterSet
+  UHF_RssiFilterReset
   UHF_GetPowerDbm
   UHF_SetPowerDbm
   UHF_GetPowerPct
@@ -46,6 +53,8 @@ EXPORTS
   UHF_WriteTagSelected
   UHF_SelectEpc
   UHF_ClearSelect
+  UHF_CalibrationTagPrepare
+  UHF_CalibrateByTag
   UHF_LockTag
   UHF_WhitelistCount
   UHF_WhitelistGetRaw
