@@ -24,6 +24,7 @@ The goal is to make RFID operations **fast to integrate** (WinDev, C/C++, .NET, 
 - **User‑friendly helpers**: read/stream, buffer pop/peek, whitelist management
 - **Safe writes**: single‑tag check + read‑back verification (override with `--force`)
 - **Select + Write multi‑tag**: mask selection is enforced for targeted writes
+- **Anti‑double read window**: optional time window to avoid repeat EPC returns
 - **GPIO/Relay** support when available in the vendor DLL
 - **Robust error reporting**: `UHF_GetLastError()` + `UHF_GetLastErrorCode()`
 
@@ -82,18 +83,43 @@ UhfWrapperCli.exe --friendly --target <EPC_ACTUEL> write 3 0 11223344 00000000
 UhfWrapperCli.exe --friendly --target <EPC_ACTUEL> --force write 3 0 11223344 00000000
 ```
 
+Anti‑double (API):
+
+```c
+UHF_DedupWindowSet(3000);   // 3 seconds
+UHF_DedupKeySet(0);         // 0=EPC only, 1=EPC+antenna
+UHF_PopBufferDedupFiltered(tags, 256, &count);
+```
+
 ## API Highlights
 
 - **Connection**: `UHF_Init`, `UHF_Open`, `UHF_Close`, `UHF_IsOpen`, `UHF_IsConnected`
 - **Tag ops**: `UHF_ReadTag`, `UHF_WriteTag`, `UHF_WriteEpc`, `UHF_WriteEpcSelected`,
   `UHF_WriteTagSelected`, `UHF_SelectEpc`, `UHF_ClearSelect`
 - **Buffer**: `UHF_PeekBuffer*`, `UHF_PopBuffer*` (safe variants)
+- **Dedup window**: `UHF_DedupWindowSet`, `UHF_DedupWindowReset`, `UHF_DedupKeySet`,
+  `UHF_PopBufferDedupFiltered`
 - **Power/Frequency**: `UHF_GetPowerDbm/Pct`, `UHF_SetPowerDbm/Pct`, `UHF_GetFreq`, `UHF_SetFreq`
 - **Whitelist**: `UHF_WhitelistCount`, `UHF_WhitelistGetRaw/Hex`, `UHF_WhitelistAddEpc`,
   `UHF_WhitelistRemoveEpc`, `UHF_WhitelistClear`
 - **Advanced**: `UHF_ModuleCommand` (if vendor exports it)
 
 For full details, see `docs/USER_GUIDE.md`.
+
+## Official mapping (WinDev example → wrapper)
+
+This is the direct mapping for what your current WinDev examples already do:
+
+- `SWHid_GetUsbCount` → `UHF_GetUsbCount`
+- `SWHid_GetUsbInfo` → `UHF_GetUsbInfoRaw`
+- `SWHid_OpenDevice` → `UHF_Open`
+- `SWHid_GetDeviceSystemInfo` → `UHF_GetInfo`
+- `SWHid_ClearTagBuf` → `UHF_ClearBuffer`
+- `SWHid_GetTagBuf` → `UHF_PopBufferAll/Dedup/Safe`
+- `SWHid_ReadDeviceOneParam(0x05)` → `UHF_GetPowerDbm`
+- `SWHid_SetDeviceOneParam(0x05)` → `UHF_SetPowerDbm`
+- `% helper` (your WinDev) → `UHF_GetPowerPct` / `UHF_SetPowerPct`
+- loop “lecture en direct” → `UHF_StartRead` + `UHF_PopBuffer*` + `UHF_StopRead`
 
 ## .NET Wrapper
 

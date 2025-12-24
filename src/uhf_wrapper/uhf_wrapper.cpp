@@ -11,6 +11,10 @@
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
+#include <chrono>
+#include <mutex>
+#include <string>
+#include <unordered_map>
 
 #if defined(_WIN32) && defined(_M_IX86)
 #define VENDOR_CALL __cdecl
@@ -29,6 +33,10 @@ static LibHandle g_vendor = nullptr;
 static int g_is_open = 0;
 static char g_last_error[256] = "";
 static int g_last_error_code = UHF_ERR_OK;
+static int g_dedup_window_ms = 0;
+static int g_dedup_key_mode = 0; // 0 = EPC only, 1 = EPC + antenna
+static std::unordered_map<std::string, int64_t> g_dedup_cache;
+static std::mutex g_dedup_mutex;
 
 static const uint8_t kMaskSelectTemplate[] = {
   0x53, 0x57, 0x00, 0xCD, 0xFF, 0x2F, 0xC3, 0x55, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0xE2,
@@ -116,6 +124,24 @@ static void sleep_ms(int ms) {
 #else
   usleep(static_cast<useconds_t>(ms * 1000));
 #endif
+}
+
+static int64_t now_ms() {
+  using namespace std::chrono;
+  return duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count();
+}
+
+static std::string build_dedup_key(const UHF_Tag& tag) {
+  std::string key = tag.epc;
+  if (g_dedup_key_mode == 1) {
+    key.push_back('#');
+    key += std::to_string(tag.antenna);
+  }
+  return key;
+}
+
+static void dedup_cache_reset_locked() {
+  g_dedup_cache.clear();
 }
 
 static void finalize_checksum(uint8_t* buf, int len) {
@@ -764,7 +790,12 @@ UHF_API int UHF_CALL UHF_ClearBuffer(void) {
     set_last_error("Missing SWHid_ClearTagBuf", UHF_ERR_VENDOR_MISSING);
     return 0;
   }
-  return fn() ? 1 : 0;
+  int ok = fn() ? 1 : 0;
+  if (ok) {
+    std::lock_guard<std::mutex> lock(g_dedup_mutex);
+    dedup_cache_reset_locked();
+  }
+  return ok;
 }
 
 static int get_tag_buf(uint8_t* buf, int buf_len, int* out_len, int* out_count) {
@@ -844,6 +875,85 @@ UHF_API int UHF_CALL UHF_PopBufferAllSafe(UHF_Tag* outTags, int maxTags, int* ou
 
 UHF_API int UHF_CALL UHF_PopBufferDedupSafe(UHF_Tag* outTags, int maxTags, int* outCount) {
   return peek_or_pop(1, 1, 1, outTags, maxTags, outCount);
+}
+
+UHF_API int UHF_CALL UHF_DedupWindowSet(int windowMs) {
+  if (windowMs < 0) {
+    set_last_error("windowMs must be >= 0", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  std::lock_guard<std::mutex> lock(g_dedup_mutex);
+  g_dedup_window_ms = windowMs;
+  if (windowMs == 0) {
+    dedup_cache_reset_locked();
+  }
+  return 1;
+}
+
+UHF_API int UHF_CALL UHF_DedupWindowReset(void) {
+  std::lock_guard<std::mutex> lock(g_dedup_mutex);
+  dedup_cache_reset_locked();
+  return 1;
+}
+
+UHF_API int UHF_CALL UHF_DedupKeySet(int mode) {
+  if (mode != 0 && mode != 1) {
+    set_last_error("mode must be 0 (EPC) or 1 (EPC+antenna)", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  std::lock_guard<std::mutex> lock(g_dedup_mutex);
+  g_dedup_key_mode = mode;
+  dedup_cache_reset_locked();
+  return 1;
+}
+
+UHF_API int UHF_CALL UHF_PopBufferDedupFiltered(UHF_Tag* outTags, int maxTags, int* outCount) {
+  if (!outTags || maxTags <= 0 || !outCount) {
+    set_last_error("Invalid output buffer", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  int window_ms = 0;
+  {
+    std::lock_guard<std::mutex> lock(g_dedup_mutex);
+    window_ms = g_dedup_window_ms;
+  }
+  if (window_ms <= 0) {
+    return UHF_PopBufferDedup(outTags, maxTags, outCount);
+  }
+  UHF_Tag tmp[256];
+  int cap = maxTags;
+  if (cap > static_cast<int>(sizeof(tmp) / sizeof(tmp[0]))) {
+    cap = static_cast<int>(sizeof(tmp) / sizeof(tmp[0]));
+  }
+  int count = 0;
+  if (!UHF_PopBufferDedup(tmp, cap, &count)) {
+    return 0;
+  }
+  int64_t now = now_ms();
+  int out = 0;
+  std::lock_guard<std::mutex> lock(g_dedup_mutex);
+  for (int i = 0; i < count && out < maxTags; ++i) {
+    std::string key = build_dedup_key(tmp[i]);
+    auto it = g_dedup_cache.find(key);
+    if (it != g_dedup_cache.end()) {
+      int64_t age = now - it->second;
+      if (age < window_ms) {
+        continue;
+      }
+    }
+    outTags[out++] = tmp[i];
+    g_dedup_cache[key] = now;
+  }
+  // Purge expired entries to keep cache bounded.
+  for (auto it = g_dedup_cache.begin(); it != g_dedup_cache.end(); ) {
+    if ((now - it->second) >= window_ms) {
+      it = g_dedup_cache.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  *outCount = out;
+  return 1;
 }
 
 UHF_API int UHF_CALL UHF_GetPowerDbm(void) {

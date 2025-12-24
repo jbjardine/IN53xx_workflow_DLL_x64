@@ -77,6 +77,14 @@ UhfWrapperCli.exe --friendly pop-dedup-safe
 UhfWrapperCli.exe --friendly buffer-clear
 ```
 
+Anti‑double (fenetre de temps) :
+```
+UHF_DedupWindowSet(3000)   // 3 secondes
+UHF_DedupKeySet(0)         // 0=EPC seul, 1=EPC+antenne
+UHF_PopBufferDedupFiltered(tags, 256, &count)
+```
+Par defaut, la fenetre est a 0 (desactive). Le cache est remis a zero par `UHF_ClearBuffer()`.
+
 Selection (cibler un tag) :
 ```
 UhfWrapperCli.exe --friendly select-epc <EPC_HEX>
@@ -128,6 +136,8 @@ UhfWrapperCli.exe --friendly module-cmd <cmdHex> [payloadHex]
 - Lecture : `UHF_StartRead`, `UHF_StopRead`, `UHF_PeekBuffer*`, `UHF_PopBuffer*`
 - Tag : `UHF_ReadTag`, `UHF_WriteTag`, `UHF_WriteEpc`, `UHF_WriteEpcSelected`,
   `UHF_WriteTagSelected`, `UHF_SelectEpc`, `UHF_ClearSelect`
+- Dedup : `UHF_DedupWindowSet`, `UHF_DedupWindowReset`, `UHF_DedupKeySet`,
+  `UHF_PopBufferDedupFiltered`
 - Puissance : `UHF_GetPowerDbm`, `UHF_SetPowerDbm`, `UHF_GetPowerPct`, `UHF_SetPowerPct`
 - Frequence : `UHF_GetFreq`, `UHF_SetFreq`
 - GPIO : `UHF_RelayOn/Off`, `UHF_Relay2On/Off`, `UHF_Out1On/Off`, `UHF_Out2On/Off`

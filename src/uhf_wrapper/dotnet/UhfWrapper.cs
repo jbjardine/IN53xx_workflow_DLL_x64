@@ -111,6 +111,18 @@ namespace UhfWrapper
         public static extern int UHF_PopBufferDedupSafe([Out] UHF_Tag[] outTags, int maxTags, out int outCount);
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_DedupWindowSet(int windowMs);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_DedupWindowReset();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_DedupKeySet(int mode);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_PopBufferDedupFiltered([Out] UHF_Tag[] outTags, int maxTags, out int outCount);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int UHF_GetPowerDbm();
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]

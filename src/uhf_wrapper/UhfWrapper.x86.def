@@ -21,6 +21,10 @@ EXPORTS
   UHF_PopBufferDedup
   UHF_PopBufferAllSafe
   UHF_PopBufferDedupSafe
+  UHF_DedupWindowSet
+  UHF_DedupWindowReset
+  UHF_DedupKeySet
+  UHF_PopBufferDedupFiltered
   UHF_GetPowerDbm
   UHF_SetPowerDbm
   UHF_GetPowerPct

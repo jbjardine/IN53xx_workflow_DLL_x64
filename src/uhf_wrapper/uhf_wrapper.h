@@ -90,6 +90,10 @@ UHF_API int UHF_CALL UHF_PopBufferAll(UHF_Tag* outTags, int maxTags, int* outCou
 UHF_API int UHF_CALL UHF_PopBufferDedup(UHF_Tag* outTags, int maxTags, int* outCount);
 UHF_API int UHF_CALL UHF_PopBufferAllSafe(UHF_Tag* outTags, int maxTags, int* outCount);
 UHF_API int UHF_CALL UHF_PopBufferDedupSafe(UHF_Tag* outTags, int maxTags, int* outCount);
+UHF_API int UHF_CALL UHF_DedupWindowSet(int windowMs);
+UHF_API int UHF_CALL UHF_DedupWindowReset(void);
+UHF_API int UHF_CALL UHF_DedupKeySet(int mode); // 0 = EPC only, 1 = EPC + antenna
+UHF_API int UHF_CALL UHF_PopBufferDedupFiltered(UHF_Tag* outTags, int maxTags, int* outCount);
 
 UHF_API int UHF_CALL UHF_GetPowerDbm(void);
 UHF_API int UHF_CALL UHF_SetPowerDbm(int dbm);
