@@ -5,7 +5,7 @@
 [![CMake](https://img.shields.io/badge/CMake-3.x-064F8C?logo=cmake)](https://cmake.org/)
 [![.NET](https://img.shields.io/badge/.NET-P%2FInvoke-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
 [![Windows](https://img.shields.io/badge/Windows-x64%20%7C%20x86-0078D6?logo=windows)](https://www.microsoft.com/windows)
-[![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Overview
 
@@ -110,4 +110,4 @@ Minimal P/Invoke projects are provided:
 
 ## License
 
-CC BY‑NC‑SA 4.0 (placeholder). Update if you decide a different license for public release.
+MIT. See `LICENSE`.
