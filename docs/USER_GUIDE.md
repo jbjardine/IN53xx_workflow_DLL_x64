@@ -85,6 +85,11 @@ UHF_PopBufferDedupFiltered(tags, 256, &count)
 ```
 Par defaut, la fenetre est a 0 (desactive). Le cache est remis a zero par `UHF_ClearBuffer()`.
 
+Lecture ponctuelle (custom, sans G2) :
+```
+UHF_ReadOnce(300, tags, 256, &count)
+```
+
 Selection (cibler un tag) :
 ```
 UhfWrapperCli.exe --friendly select-epc <EPC_HEX>
@@ -138,6 +143,7 @@ UhfWrapperCli.exe --friendly module-cmd <cmdHex> [payloadHex]
   `UHF_WriteTagSelected`, `UHF_SelectEpc`, `UHF_ClearSelect`
 - Dedup : `UHF_DedupWindowSet`, `UHF_DedupWindowReset`, `UHF_DedupKeySet`,
   `UHF_PopBufferDedupFiltered`
+- Read once : `UHF_ReadOnce`
 - Puissance : `UHF_GetPowerDbm`, `UHF_SetPowerDbm`, `UHF_GetPowerPct`, `UHF_SetPowerPct`
 - Frequence : `UHF_GetFreq`, `UHF_SetFreq`
 - GPIO : `UHF_RelayOn/Off`, `UHF_Relay2On/Off`, `UHF_Out1On/Off`, `UHF_Out2On/Off`

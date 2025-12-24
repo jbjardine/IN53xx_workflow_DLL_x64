@@ -252,9 +252,6 @@ namespace UhfWrapper
         public static extern byte SWHid_GetTagBuf(byte[] buf, out int length, out int tagNum);
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
-        public static extern bool SWHid_InventoryG2(byte devAdr, byte[] buf, out ushort totalLen, out ushort cardNum);
-
-        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern bool SWHid_WriteEPCG2(byte devAdr, byte[] pwd, byte[] epc, byte epcLen);
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]

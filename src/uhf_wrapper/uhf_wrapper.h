@@ -94,6 +94,7 @@ UHF_API int UHF_CALL UHF_DedupWindowSet(int windowMs);
 UHF_API int UHF_CALL UHF_DedupWindowReset(void);
 UHF_API int UHF_CALL UHF_DedupKeySet(int mode); // 0 = EPC only, 1 = EPC + antenna
 UHF_API int UHF_CALL UHF_PopBufferDedupFiltered(UHF_Tag* outTags, int maxTags, int* outCount);
+UHF_API int UHF_CALL UHF_ReadOnce(int timeoutMs, UHF_Tag* outTags, int maxTags, int* outCount);
 
 UHF_API int UHF_CALL UHF_GetPowerDbm(void);
 UHF_API int UHF_CALL UHF_SetPowerDbm(int dbm);

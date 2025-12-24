@@ -956,6 +956,25 @@ UHF_API int UHF_CALL UHF_PopBufferDedupFiltered(UHF_Tag* outTags, int maxTags, i
   return 1;
 }
 
+UHF_API int UHF_CALL UHF_ReadOnce(int timeoutMs, UHF_Tag* outTags, int maxTags, int* outCount) {
+  if (!outTags || maxTags <= 0 || !outCount) {
+    set_last_error("Invalid output buffer", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  if (timeoutMs < 0) timeoutMs = 0;
+  if (!UHF_ClearBuffer()) {
+    set_last_error("ClearBuffer failed", UHF_ERR_VENDOR_CALL_FAILED);
+    return 0;
+  }
+  if (!UHF_StartRead()) {
+    set_last_error("StartRead failed", UHF_ERR_VENDOR_CALL_FAILED);
+    return 0;
+  }
+  sleep_ms(timeoutMs);
+  UHF_StopRead();
+  return UHF_PopBufferDedupFiltered(outTags, maxTags, outCount);
+}
+
 UHF_API int UHF_CALL UHF_GetPowerDbm(void) {
   using Fn = int (VENDOR_CALL*)(uint8_t, uint8_t, uint8_t*);
   auto fn = load_fn<Fn>("SWHid_ReadDeviceOneParam");

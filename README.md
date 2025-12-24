@@ -99,6 +99,7 @@ UHF_PopBufferDedupFiltered(tags, 256, &count);
 - **Buffer**: `UHF_PeekBuffer*`, `UHF_PopBuffer*` (safe variants)
 - **Dedup window**: `UHF_DedupWindowSet`, `UHF_DedupWindowReset`, `UHF_DedupKeySet`,
   `UHF_PopBufferDedupFiltered`
+- **Read once (custom)**: `UHF_ReadOnce`
 - **Power/Frequency**: `UHF_GetPowerDbm/Pct`, `UHF_SetPowerDbm/Pct`, `UHF_GetFreq`, `UHF_SetFreq`
 - **Whitelist**: `UHF_WhitelistCount`, `UHF_WhitelistGetRaw/Hex`, `UHF_WhitelistAddEpc`,
   `UHF_WhitelistRemoveEpc`, `UHF_WhitelistClear`

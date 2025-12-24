@@ -85,7 +85,6 @@ EXPORTS
   SWHid_GetTagBuf
   SWHid_GetUsbCount
   SWHid_GetUsbInfo
-  SWHid_InventoryG2
   SWHid_KillCardG2
   SWHid_LockCardG2
   SWHid_OpenDevice
