@@ -287,6 +287,24 @@ static int set_mask_special_param(const uint8_t* epc, int epc_len, int enable) {
   return write_special_param(reinterpret_cast<const uint8_t*>(&p), static_cast<uint8_t>(sizeof(p)));
 }
 
+static int count_tags_once(int timeout_ms, int* out_count) {
+  if (!out_count) return 0;
+  *out_count = 0;
+  if (!UHF_StartRead()) {
+    return 0;
+  }
+  if (timeout_ms < 0) timeout_ms = 0;
+  sleep_ms(timeout_ms);
+  UHF_StopRead();
+  UHF_Tag tags[256];
+  int count = 0;
+  if (!UHF_PopBufferDedup(tags, 256, &count)) {
+    return 0;
+  }
+  *out_count = count;
+  return 1;
+}
+
 template <typename T>
 static T load_fn(const char* name) {
   if (!ensure_vendor_loaded()) {
@@ -937,6 +955,33 @@ UHF_API int UHF_CALL UHF_WriteEpc(const char* epcHex, const char* pwdHex) {
   if (!ok) {
     set_last_error("EPC write failed (WriteEPCG2/WriteCardG2)", UHF_ERR_VENDOR_CALL_FAILED);
   }
+  return ok;
+}
+
+UHF_API int UHF_CALL UHF_WriteEpcSelected(const char* targetEpcHex, const char* newEpcHex,
+                                          const char* pwdHex, int forceMulti) {
+  if (!targetEpcHex || !targetEpcHex[0] || !newEpcHex || !newEpcHex[0]) {
+    set_last_error("Invalid target/new EPC hex", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  if (!forceMulti) {
+    int count = 0;
+    if (!count_tags_once(200, &count)) {
+      set_last_error("Failed to read tags for safety check", UHF_ERR_VENDOR_CALL_FAILED);
+      return 0;
+    }
+    if (count > 1) {
+      set_last_error("Multiple tags detected; use force to override", UHF_ERR_MULTI_TAG);
+      return 0;
+    }
+  }
+  int sel_ok = UHF_SelectEpc(targetEpcHex);
+  if (!sel_ok) {
+    set_last_error("Select EPC failed", UHF_ERR_VENDOR_CALL_FAILED);
+    return 0;
+  }
+  int ok = UHF_WriteEpc(newEpcHex, pwdHex);
+  UHF_ClearSelect();
   return ok;
 }
 

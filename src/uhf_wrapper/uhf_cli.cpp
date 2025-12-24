@@ -29,6 +29,7 @@ struct CliOptions {
   int epc_prefix_len = 0;
   char target_epc[UHF_MAX_EPC_HEX + 1] = {0};
   int target_epc_len = 0;
+  int force_multi = 0;
 };
 
 static void usage() {
@@ -47,7 +48,8 @@ static void usage() {
   printf("  --min-rssi <dbm>\n");
   printf("  --epc-prefix <hex>\n");
   printf("  --antenna <n>\n\n");
-  printf("  --target <epcHex> (write/write-epc target selection)\n\n");
+  printf("  --target <epcHex> (write/write-epc target selection)\n");
+  printf("  --force           (allow write if multiple tags detected)\n\n");
 
   printf("Commands:\n");
   printf("  count\n");
@@ -349,6 +351,23 @@ static void sleep_ms(int ms) {
   std::this_thread::sleep_for(std::chrono::milliseconds(ms));
 }
 
+static int count_tags_once_cli(int timeout_ms, int* out_count) {
+  if (!out_count) return 0;
+  *out_count = 0;
+  if (!UHF_StartRead()) {
+    return 0;
+  }
+  sleep_ms(timeout_ms);
+  UHF_StopRead();
+  UHF_Tag tags[256];
+  int count = 0;
+  if (!UHF_PopBufferDedup(tags, 256, &count)) {
+    return 0;
+  }
+  *out_count = count;
+  return 1;
+}
+
 int main(int argc, char** argv) {
   if (argc < 2) {
     usage();
@@ -414,6 +433,9 @@ int main(int argc, char** argv) {
         printf("Invalid target EPC\n");
         return 1;
       }
+      ++argi;
+    } else if (strcmp(a, "--force") == 0) {
+      opt.force_multi = 1;
       ++argi;
     } else if (strcmp(a, "--help") == 0 || strcmp(a, "-h") == 0) {
       usage();
@@ -969,6 +991,19 @@ int main(int argc, char** argv) {
         exit_code = 1;
       } else {
         if (opt.target_epc_len > 0) {
+          if (!opt.force_multi) {
+            int tag_count = 0;
+            if (!count_tags_once_cli(opt.timeout_ms, &tag_count)) {
+              printf("Safety check failed: %s\n", UHF_GetLastError());
+              exit_code = 1;
+              goto write_done;
+            }
+            if (tag_count > 1) {
+              printf("Multiple tags detected (%d). Use --force to override.\n", tag_count);
+              exit_code = 1;
+              goto write_done;
+            }
+          }
           int sel_ok = UHF_SelectEpc(opt.target_epc);
           if (!sel_ok) {
             printf("Select EPC failed: %s\n", UHF_GetLastError());
@@ -999,15 +1034,15 @@ write_done:
     } else {
       const char* epcHex = argv[argi++];
       const char* pwdHex = argv[argi++];
+      int ok = 0;
       if (opt.target_epc_len > 0) {
-        int sel_ok = UHF_SelectEpc(opt.target_epc);
-        if (!sel_ok) {
-          printf("Select EPC failed: %s\n", UHF_GetLastError());
-          exit_code = 1;
-          goto write_epc_done;
+        ok = UHF_WriteEpcSelected(opt.target_epc, epcHex, pwdHex, opt.force_multi);
+        if (!ok && UHF_GetLastErrorCode() == UHF_ERR_MULTI_TAG) {
+          printf("Multiple tags detected. Use --force to override.\n");
         }
+      } else {
+        ok = UHF_WriteEpc(epcHex, pwdHex);
       }
-      int ok = UHF_WriteEpc(epcHex, pwdHex);
       if (opt.friendly) {
         print_friendly_ok("Write EPC", ok);
       } else {
@@ -1016,10 +1051,6 @@ write_done:
       if (!ok) {
         printf("Error: %s\n", UHF_GetLastError());
         exit_code = 1;
-      }
-write_epc_done:
-      if (opt.target_epc_len > 0) {
-        UHF_ClearSelect();
       }
     }
   } else if (strcmp(cmd, "lock") == 0) {

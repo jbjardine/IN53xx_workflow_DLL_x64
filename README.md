@@ -71,12 +71,17 @@ UhfWrapperCli.exe --friendly read-stream --duration 2000
 UhfWrapperCli.exe --friendly select-epc <EPC_HEX>
 UhfWrapperCli.exe --friendly write-epc <NEW_EPC_HEX> 00000000
 UhfWrapperCli.exe --friendly select-clear
+
+# One‑shot write with safety (blocks if multiple tags detected)
+UhfWrapperCli.exe --friendly --target <EPC_ACTUEL> write-epc <NEW_EPC_HEX> 00000000
+UhfWrapperCli.exe --friendly --target <EPC_ACTUEL> --force write-epc <NEW_EPC_HEX> 00000000
 ```
 
 ## API Highlights
 
 - **Connection**: `UHF_Init`, `UHF_Open`, `UHF_Close`, `UHF_IsOpen`, `UHF_IsConnected`
-- **Tag ops**: `UHF_ReadTag`, `UHF_WriteTag`, `UHF_WriteEpc`, `UHF_SelectEpc`, `UHF_ClearSelect`
+- **Tag ops**: `UHF_ReadTag`, `UHF_WriteTag`, `UHF_WriteEpc`, `UHF_WriteEpcSelected`,
+  `UHF_SelectEpc`, `UHF_ClearSelect`
 - **Buffer**: `UHF_PeekBuffer*`, `UHF_PopBuffer*` (safe variants)
 - **Power/Frequency**: `UHF_GetPowerDbm/Pct`, `UHF_SetPowerDbm/Pct`, `UHF_GetFreq`, `UHF_SetFreq`
 - **Whitelist**: `UHF_WhitelistCount`, `UHF_WhitelistGetRaw/Hex`, `UHF_WhitelistAddEpc`,

@@ -35,6 +35,7 @@ Codes principaux :
 - `UHF_ERR_NOT_OPEN` (-6)
 - `UHF_ERR_NOT_CONNECTED` (-7)
 - `UHF_ERR_NO_DEVICE` (-8)
+- `UHF_ERR_MULTI_TAG` (-9)
 
 ## Build (Windows)
 ```
@@ -83,6 +84,12 @@ UhfWrapperCli.exe --friendly select-clear
 ```
 Note : la sélection force le **mask** via `SWHid_SetDeviceSpecialParam` quand disponible, afin que les opérations d’écriture ciblent bien un seul tag. Sur SDKs incomplets, la sélection peut ne s’appliquer qu’à l’inventaire.
 
+Sécurité multi‑tag (optionnelle) :
+```
+UhfWrapperCli.exe --friendly --target <EPC_ACTUEL> write-epc <NEW_EPC_HEX> 00000000
+UhfWrapperCli.exe --friendly --target <EPC_ACTUEL> --force write-epc <NEW_EPC_HEX> 00000000
+```
+
 Whitelist :
 ```
 UhfWrapperCli.exe --friendly whitelist-count
@@ -114,7 +121,8 @@ UhfWrapperCli.exe --friendly module-cmd <cmdHex> [payloadHex]
 - Connexion : `UHF_Init`, `UHF_Open`, `UHF_Close`, `UHF_IsOpen`, `UHF_IsConnected`
 - Infos : `UHF_GetInfo`, `UHF_GetUsbCount`, `UHF_GetUsbInfoRaw`
 - Lecture : `UHF_StartRead`, `UHF_StopRead`, `UHF_PeekBuffer*`, `UHF_PopBuffer*`
-- Tag : `UHF_ReadTag`, `UHF_WriteTag`, `UHF_WriteEpc`, `UHF_SelectEpc`, `UHF_ClearSelect`
+- Tag : `UHF_ReadTag`, `UHF_WriteTag`, `UHF_WriteEpc`, `UHF_WriteEpcSelected`,
+  `UHF_SelectEpc`, `UHF_ClearSelect`
 - Puissance : `UHF_GetPowerDbm`, `UHF_SetPowerDbm`, `UHF_GetPowerPct`, `UHF_SetPowerPct`
 - Frequence : `UHF_GetFreq`, `UHF_SetFreq`
 - GPIO : `UHF_RelayOn/Off`, `UHF_Relay2On/Off`, `UHF_Out1On/Off`, `UHF_Out2On/Off`
