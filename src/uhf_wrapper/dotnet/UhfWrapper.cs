@@ -169,6 +169,11 @@ namespace UhfWrapper
         public static extern int UHF_WriteEpcSelected(string targetEpcHex, string newEpcHex, string pwdHex, int forceMulti);
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
+        public static extern int UHF_WriteTagSelected(string targetEpcHex, byte bank, byte wordPtr,
+                                                      byte[] data, int dataLenBytes,
+                                                      string pwdHex, int forceMulti);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
         public static extern int UHF_SelectEpc(string epcHex);
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]

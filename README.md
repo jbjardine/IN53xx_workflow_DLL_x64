@@ -22,7 +22,8 @@ The goal is to make RFID operations **fast to integrate** (WinDev, C/C++, .NET, 
 
 - **Cross‑arch parity**: x64 and x86 expose the same `UHF_*` functions
 - **User‑friendly helpers**: read/stream, buffer pop/peek, whitelist management
-- **Select + Write multi‑tag**: mask selection is enforced for single‑tag writes
+- **Safe writes**: single‑tag check + read‑back verification (override with `--force`)
+- **Select + Write multi‑tag**: mask selection is enforced for targeted writes
 - **GPIO/Relay** support when available in the vendor DLL
 - **Robust error reporting**: `UHF_GetLastError()` + `UHF_GetLastErrorCode()`
 
@@ -75,13 +76,17 @@ UhfWrapperCli.exe --friendly select-clear
 # One‑shot write with safety (blocks if multiple tags detected)
 UhfWrapperCli.exe --friendly --target <EPC_ACTUEL> write-epc <NEW_EPC_HEX> 00000000
 UhfWrapperCli.exe --friendly --target <EPC_ACTUEL> --force write-epc <NEW_EPC_HEX> 00000000
+
+# Targeted memory write (same safety rules)
+UhfWrapperCli.exe --friendly --target <EPC_ACTUEL> write 3 0 11223344 00000000
+UhfWrapperCli.exe --friendly --target <EPC_ACTUEL> --force write 3 0 11223344 00000000
 ```
 
 ## API Highlights
 
 - **Connection**: `UHF_Init`, `UHF_Open`, `UHF_Close`, `UHF_IsOpen`, `UHF_IsConnected`
 - **Tag ops**: `UHF_ReadTag`, `UHF_WriteTag`, `UHF_WriteEpc`, `UHF_WriteEpcSelected`,
-  `UHF_SelectEpc`, `UHF_ClearSelect`
+  `UHF_WriteTagSelected`, `UHF_SelectEpc`, `UHF_ClearSelect`
 - **Buffer**: `UHF_PeekBuffer*`, `UHF_PopBuffer*` (safe variants)
 - **Power/Frequency**: `UHF_GetPowerDbm/Pct`, `UHF_SetPowerDbm/Pct`, `UHF_GetFreq`, `UHF_SetFreq`
 - **Whitelist**: `UHF_WhitelistCount`, `UHF_WhitelistGetRaw/Hex`, `UHF_WhitelistAddEpc`,

@@ -991,25 +991,21 @@ int main(int argc, char** argv) {
         exit_code = 1;
       } else {
         if (opt.target_epc_len > 0) {
-          if (!opt.force_multi) {
-            int tag_count = 0;
-            if (!count_tags_once_cli(opt.timeout_ms, &tag_count)) {
-              printf("Safety check failed: %s\n", UHF_GetLastError());
-              exit_code = 1;
-              goto write_done;
-            }
-            if (tag_count > 1) {
-              printf("Multiple tags detected (%d). Use --force to override.\n", tag_count);
-              exit_code = 1;
-              goto write_done;
-            }
+          int ok = UHF_WriteTagSelected(opt.target_epc, (uint8_t)bank, (uint8_t)wordPtr,
+                                        data, dataLen, pwdHex, opt.force_multi);
+          if (opt.friendly) {
+            print_friendly_ok("Write", ok);
+          } else {
+            printf("ok=%d\n", ok);
           }
-          int sel_ok = UHF_SelectEpc(opt.target_epc);
-          if (!sel_ok) {
-            printf("Select EPC failed: %s\n", UHF_GetLastError());
+          if (!ok) {
+            if (UHF_GetLastErrorCode() == UHF_ERR_MULTI_TAG) {
+              printf("Multiple tags detected. Use --force to override.\n");
+            }
+            printf("Error: %s\n", UHF_GetLastError());
             exit_code = 1;
-            goto write_done;
           }
+          goto write_done;
         }
         int ok = UHF_WriteTag((uint8_t)bank, (uint8_t)wordPtr, data, dataLen, pwdHex);
         if (opt.friendly) {
@@ -1022,9 +1018,7 @@ int main(int argc, char** argv) {
           exit_code = 1;
         }
 write_done:
-        if (opt.target_epc_len > 0) {
-          UHF_ClearSelect();
-        }
+        ;
       }
     }
   } else if (strcmp(cmd, "write-epc") == 0) {

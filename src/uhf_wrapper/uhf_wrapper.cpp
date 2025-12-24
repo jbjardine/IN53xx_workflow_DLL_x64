@@ -69,6 +69,7 @@ struct SpecialParamV2 {
 
 template <typename T>
 static T load_fn(const char* name);
+static int hex_to_bytes(const char* hex, uint8_t* out, int out_cap);
 
 static void set_last_error(const char* msg, int code) {
   if (!msg || msg[0] == '\0') {
@@ -302,6 +303,150 @@ static int count_tags_once(int timeout_ms, int* out_count) {
     return 0;
   }
   *out_count = count;
+  return 1;
+}
+
+static int epc_hex_equal(const char* a, const char* b) {
+  if (!a || !b) return 0;
+  const char* pa = a;
+  const char* pb = b;
+  for (;;) {
+    while (*pa == ' ' || *pa == '\t' || *pa == '\n' || *pa == '\r') ++pa;
+    while (*pb == ' ' || *pb == '\t' || *pb == '\n' || *pb == '\r') ++pb;
+    if (*pa == '\0' || *pb == '\0') {
+      return (*pa == '\0' && *pb == '\0') ? 1 : 0;
+    }
+    if (tolower(static_cast<unsigned char>(*pa)) != tolower(static_cast<unsigned char>(*pb))) {
+      return 0;
+    }
+    ++pa;
+    ++pb;
+  }
+}
+
+static int inventory_has_epc(const char* epcHex, int timeout_ms) {
+  if (!epcHex || !epcHex[0]) return 0;
+  if (timeout_ms < 0) timeout_ms = 0;
+  if (!UHF_StartRead()) {
+    return 0;
+  }
+  int elapsed = 0;
+  int found = 0;
+  int interval = 50;
+  if (timeout_ms > 0 && interval > timeout_ms) interval = timeout_ms;
+  while (timeout_ms == 0 || elapsed < timeout_ms) {
+    sleep_ms(interval);
+    elapsed += interval;
+    UHF_Tag tags[256];
+    int count = 0;
+    if (!UHF_PopBufferDedup(tags, 256, &count)) {
+      continue;
+    }
+    for (int i = 0; i < count; ++i) {
+      if (epc_hex_equal(tags[i].epc, epcHex)) {
+        found = 1;
+        break;
+      }
+    }
+    if (found) break;
+    if (timeout_ms == 0) break;
+  }
+  UHF_StopRead();
+  return found;
+}
+
+static int verify_tag_read(uint8_t bank, uint8_t wordPtr, const uint8_t* expected,
+                           int expected_len, const char* pwdHex) {
+  if (!expected || expected_len <= 0) return 0;
+  uint8_t buf[512];
+  int bytesRead = 0;
+  uint8_t wordCount = static_cast<uint8_t>(expected_len / 2);
+  if ((expected_len % 2) != 0) {
+    return 0;
+  }
+  int ok = UHF_ReadTag(bank, wordPtr, wordCount, pwdHex, buf, sizeof(buf), &bytesRead);
+  if (!ok || bytesRead < expected_len) {
+    return 0;
+  }
+  return memcmp(buf, expected, expected_len) == 0 ? 1 : 0;
+}
+
+static int write_tag_raw(uint8_t bank, uint8_t wordPtr,
+                         const uint8_t* data, int dataLenBytes,
+                         const char* pwdHex) {
+  using Fn = int (VENDOR_CALL*)(uint8_t, uint8_t*, uint8_t, uint8_t, uint8_t, uint8_t*);
+  auto fn = load_fn<Fn>("SWHid_WriteCardG2");
+  if (!fn) {
+    set_last_error("Missing SWHid_WriteCardG2", UHF_ERR_VENDOR_MISSING);
+    return 0;
+  }
+  if (!data || dataLenBytes <= 0 || (dataLenBytes % 2) != 0) {
+    set_last_error("Invalid data length (must be even, bytes)", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  uint8_t pwd[4] = {0};
+  if (pwdHex && pwdHex[0]) {
+    if (hex_to_bytes(pwdHex, pwd, sizeof(pwd)) != 4) {
+      set_last_error("Invalid password hex (need 8 hex chars)", UHF_ERR_INVALID_ARG);
+      return 0;
+    }
+  }
+  uint8_t wordCount = static_cast<uint8_t>(dataLenBytes / 2);
+  int ok = fn(0xFF, pwd, bank, wordPtr, wordCount, const_cast<uint8_t*>(data)) ? 1 : 0;
+  if (!ok) {
+    set_last_error("Write tag failed (WriteCardG2)", UHF_ERR_VENDOR_CALL_FAILED);
+  }
+  return ok;
+}
+
+static int write_epc_raw(const char* epcHex, const char* pwdHex,
+                         uint8_t* out_epc, int* out_epc_len) {
+  using Fn = int (VENDOR_CALL*)(uint8_t, uint8_t*, uint8_t*, uint8_t);
+  using FnWrite = int (VENDOR_CALL*)(uint8_t, uint8_t*, uint8_t, uint8_t, uint8_t, uint8_t*);
+  auto fn = load_fn<Fn>("SWHid_WriteEPCG2");
+  if (!fn) {
+    set_last_error("Missing SWHid_WriteEPCG2", UHF_ERR_VENDOR_MISSING);
+    return 0;
+  }
+  if (!epcHex || !epcHex[0]) {
+    set_last_error("Invalid EPC hex", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  uint8_t epc[UHF_MAX_EPC_BYTES] = {0};
+  int epc_len = hex_to_bytes(epcHex, epc, sizeof(epc));
+  if (epc_len <= 0 || (epc_len % 2) != 0) {
+    set_last_error("Invalid EPC length (must be even bytes)", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  uint8_t pwd[4] = {0};
+  if (pwdHex && pwdHex[0]) {
+    if (hex_to_bytes(pwdHex, pwd, sizeof(pwd)) != 4) {
+      set_last_error("Invalid password hex (need 8 hex chars)", UHF_ERR_INVALID_ARG);
+      return 0;
+    }
+  }
+  // ReaderSoft expects EPC length in 16-bit words.
+  uint8_t word_len = static_cast<uint8_t>(epc_len / 2);
+  int ok = fn(0xFF, pwd, epc, word_len) ? 1 : 0;
+  if (!ok) {
+    sleep_ms(40);
+    ok = fn(0xFF, pwd, epc, word_len) ? 1 : 0;
+  }
+  if (!ok && (epc_len % 2) == 0) {
+    // Fallback: write EPC memory directly (bank EPC, wordPtr=2).
+    auto fn_write = load_fn<FnWrite>("SWHid_WriteCardG2");
+    if (fn_write && word_len > 0) {
+      ok = fn_write(0xFF, pwd, 1, 2, word_len, epc) ? 1 : 0;
+    }
+  }
+  if (!ok) {
+    set_last_error("EPC write failed (WriteEPCG2/WriteCardG2)", UHF_ERR_VENDOR_CALL_FAILED);
+    return 0;
+  }
+  if (out_epc && out_epc_len) {
+    memcpy(out_epc, epc, static_cast<size_t>(epc_len));
+    *out_epc_len = epc_len;
+  }
   return 1;
 }
 
@@ -890,72 +1035,49 @@ UHF_API int UHF_CALL UHF_ReadTag(uint8_t bank, uint8_t wordPtr, uint8_t wordCoun
 UHF_API int UHF_CALL UHF_WriteTag(uint8_t bank, uint8_t wordPtr,
                                   const uint8_t* data, int dataLenBytes,
                                   const char* pwdHex) {
-  using Fn = int (VENDOR_CALL*)(uint8_t, uint8_t*, uint8_t, uint8_t, uint8_t, uint8_t*);
-  auto fn = load_fn<Fn>("SWHid_WriteCardG2");
-  if (!fn) {
-    set_last_error("Missing SWHid_WriteCardG2", UHF_ERR_VENDOR_MISSING);
-    return 0;
-  }
   if (!data || dataLenBytes <= 0 || (dataLenBytes % 2) != 0) {
     set_last_error("Invalid data length (must be even, bytes)", UHF_ERR_INVALID_ARG);
     return 0;
   }
-  uint8_t pwd[4] = {0};
-  if (pwdHex && pwdHex[0]) {
-    if (hex_to_bytes(pwdHex, pwd, sizeof(pwd)) != 4) {
-      set_last_error("Invalid password hex (need 8 hex chars)", UHF_ERR_INVALID_ARG);
-      return 0;
-    }
+  int count = 0;
+  if (!count_tags_once(200, &count)) {
+    set_last_error("Failed to read tags for safety check", UHF_ERR_VENDOR_CALL_FAILED);
+    return 0;
   }
-  uint8_t wordCount = static_cast<uint8_t>(dataLenBytes / 2);
-  return fn(0xFF, pwd, bank, wordPtr, wordCount, const_cast<uint8_t*>(data)) ? 1 : 0;
+  if (count > 1) {
+    set_last_error("Multiple tags detected; use selected write", UHF_ERR_MULTI_TAG);
+    return 0;
+  }
+  if (!write_tag_raw(bank, wordPtr, data, dataLenBytes, pwdHex)) {
+    return 0;
+  }
+  if (!verify_tag_read(bank, wordPtr, data, dataLenBytes, pwdHex)) {
+    set_last_error("Write verify failed", UHF_ERR_VERIFY_FAILED);
+    return 0;
+  }
+  return 1;
 }
 
 UHF_API int UHF_CALL UHF_WriteEpc(const char* epcHex, const char* pwdHex) {
-  using Fn = int (VENDOR_CALL*)(uint8_t, uint8_t*, uint8_t*, uint8_t);
-  using FnWrite = int (VENDOR_CALL*)(uint8_t, uint8_t*, uint8_t, uint8_t, uint8_t, uint8_t*);
-  auto fn = load_fn<Fn>("SWHid_WriteEPCG2");
-  if (!fn) {
-    set_last_error("Missing SWHid_WriteEPCG2", UHF_ERR_VENDOR_MISSING);
+  int count = 0;
+  if (!count_tags_once(200, &count)) {
+    set_last_error("Failed to read tags for safety check", UHF_ERR_VENDOR_CALL_FAILED);
     return 0;
   }
-  if (!epcHex || !epcHex[0]) {
-    set_last_error("Invalid EPC hex", UHF_ERR_INVALID_ARG);
+  if (count > 1) {
+    set_last_error("Multiple tags detected; use selected write", UHF_ERR_MULTI_TAG);
     return 0;
   }
   uint8_t epc[UHF_MAX_EPC_BYTES] = {0};
-  int epc_len = hex_to_bytes(epcHex, epc, sizeof(epc));
-  if (epc_len <= 0 || (epc_len % 2) != 0) {
-    set_last_error("Invalid EPC length (must be even bytes)", UHF_ERR_INVALID_ARG);
+  int epc_len = 0;
+  if (!write_epc_raw(epcHex, pwdHex, epc, &epc_len)) {
     return 0;
   }
-  uint8_t pwd[4] = {0};
-  if (pwdHex && pwdHex[0]) {
-    if (hex_to_bytes(pwdHex, pwd, sizeof(pwd)) != 4) {
-      set_last_error("Invalid password hex (need 8 hex chars)", UHF_ERR_INVALID_ARG);
-      return 0;
-    }
+  if (!verify_tag_read(1, 2, epc, epc_len, pwdHex)) {
+    set_last_error("EPC verify failed", UHF_ERR_VERIFY_FAILED);
+    return 0;
   }
-  // ReaderSoft expects EPC length in 16-bit words.
-  uint8_t word_len = static_cast<uint8_t>(epc_len / 2);
-  int ok = fn(0xFF, pwd, epc, word_len) ? 1 : 0;
-  if (!ok) {
-    sleep_ms(40);
-    ok = fn(0xFF, pwd, epc, word_len) ? 1 : 0;
-  }
-  if (!ok && (epc_len % 2) == 0) {
-    // Fallback: write EPC memory directly (bank EPC, wordPtr=2).
-    auto fn_write = load_fn<FnWrite>("SWHid_WriteCardG2");
-    if (fn_write) {
-      if (word_len > 0) {
-        ok = fn_write(0xFF, pwd, 1, 2, word_len, epc) ? 1 : 0;
-      }
-    }
-  }
-  if (!ok) {
-    set_last_error("EPC write failed (WriteEPCG2/WriteCardG2)", UHF_ERR_VENDOR_CALL_FAILED);
-  }
-  return ok;
+  return 1;
 }
 
 UHF_API int UHF_CALL UHF_WriteEpcSelected(const char* targetEpcHex, const char* newEpcHex,
@@ -980,7 +1102,59 @@ UHF_API int UHF_CALL UHF_WriteEpcSelected(const char* targetEpcHex, const char* 
     set_last_error("Select EPC failed", UHF_ERR_VENDOR_CALL_FAILED);
     return 0;
   }
-  int ok = UHF_WriteEpc(newEpcHex, pwdHex);
+  uint8_t epc[UHF_MAX_EPC_BYTES] = {0};
+  int epc_len = 0;
+  int ok = write_epc_raw(newEpcHex, pwdHex, epc, &epc_len);
+  int verify_ok = 0;
+  UHF_ClearSelect();
+  if (ok) {
+    if (UHF_SelectEpc(newEpcHex)) {
+      verify_ok = verify_tag_read(1, 2, epc, epc_len, pwdHex);
+    }
+    UHF_ClearSelect();
+    if (!verify_ok) {
+      verify_ok = inventory_has_epc(newEpcHex, 200);
+    }
+  }
+  if (ok && !verify_ok) {
+    set_last_error("EPC verify failed", UHF_ERR_VERIFY_FAILED);
+    ok = 0;
+  }
+  return ok;
+}
+
+UHF_API int UHF_CALL UHF_WriteTagSelected(const char* targetEpcHex, uint8_t bank, uint8_t wordPtr,
+                                          const uint8_t* data, int dataLenBytes,
+                                          const char* pwdHex, int forceMulti) {
+  if (!targetEpcHex || !targetEpcHex[0]) {
+    set_last_error("Invalid target EPC hex", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  if (!data || dataLenBytes <= 0 || (dataLenBytes % 2) != 0) {
+    set_last_error("Invalid data length (must be even, bytes)", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  if (!forceMulti) {
+    int count = 0;
+    if (!count_tags_once(200, &count)) {
+      set_last_error("Failed to read tags for safety check", UHF_ERR_VENDOR_CALL_FAILED);
+      return 0;
+    }
+    if (count > 1) {
+      set_last_error("Multiple tags detected; use force to override", UHF_ERR_MULTI_TAG);
+      return 0;
+    }
+  }
+  int sel_ok = UHF_SelectEpc(targetEpcHex);
+  if (!sel_ok) {
+    set_last_error("Select EPC failed", UHF_ERR_VENDOR_CALL_FAILED);
+    return 0;
+  }
+  int ok = write_tag_raw(bank, wordPtr, data, dataLenBytes, pwdHex);
+  if (ok && !verify_tag_read(bank, wordPtr, data, dataLenBytes, pwdHex)) {
+    set_last_error("Write verify failed", UHF_ERR_VERIFY_FAILED);
+    ok = 0;
+  }
   UHF_ClearSelect();
   return ok;
 }
@@ -996,35 +1170,33 @@ UHF_API int UHF_CALL UHF_SelectEpc(const char* epcHex) {
     set_last_error("Select EPC requires 1..12 bytes (24 hex chars for 96-bit EPC)", UHF_ERR_INVALID_ARG);
     return 0;
   }
-  if (set_mask_special_param(epc, epc_len, 1)) {
-    return 1;
-  }
+  int sp_ok = set_mask_special_param(epc, epc_len, 1);
   uint8_t frame[sizeof(kMaskSelectTemplate)] = {0};
   if (!build_mask_frame(epc, epc_len, 1, frame, sizeof(frame))) {
     set_last_error("Failed to build mask frame", UHF_ERR_INVALID_ARG);
     return 0;
   }
-  int ok = send_buffer(frame, static_cast<int>(sizeof(frame)));
-  if (!ok) {
-    set_last_error("Mask select failed", UHF_ERR_VENDOR_CALL_FAILED);
+  int frame_ok = send_buffer(frame, static_cast<int>(sizeof(frame)));
+  if (sp_ok || frame_ok) {
+    return 1;
   }
-  return ok;
+  set_last_error("Mask select failed", UHF_ERR_VENDOR_CALL_FAILED);
+  return 0;
 }
 
 UHF_API int UHF_CALL UHF_ClearSelect(void) {
-  if (set_mask_special_param(nullptr, 0, 0)) {
-    return 1;
-  }
+  int sp_ok = set_mask_special_param(nullptr, 0, 0);
   uint8_t frame[sizeof(kMaskSelectTemplate)] = {0};
   if (!build_mask_frame(nullptr, 0, 0, frame, sizeof(frame))) {
     set_last_error("Failed to build clear mask frame", UHF_ERR_INVALID_ARG);
     return 0;
   }
-  int ok = send_buffer(frame, static_cast<int>(sizeof(frame)));
-  if (!ok) {
-    set_last_error("Mask clear failed", UHF_ERR_VENDOR_CALL_FAILED);
+  int frame_ok = send_buffer(frame, static_cast<int>(sizeof(frame)));
+  if (sp_ok || frame_ok) {
+    return 1;
   }
-  return ok;
+  set_last_error("Mask clear failed", UHF_ERR_VENDOR_CALL_FAILED);
+  return 0;
 }
 
 static int parse_pwd_hex(const char* pwdHex, uint8_t* out4) {

@@ -39,6 +39,7 @@ EXPORTS
   UHF_WriteTag
   UHF_WriteEpc
   UHF_WriteEpcSelected
+  UHF_WriteTagSelected
   UHF_SelectEpc
   UHF_ClearSelect
   UHF_LockTag

@@ -58,6 +58,7 @@ typedef struct UHF_DeviceInfo {
 #define UHF_ERR_NOT_CONNECTED -7
 #define UHF_ERR_NO_DEVICE -8
 #define UHF_ERR_MULTI_TAG -9
+#define UHF_ERR_VERIFY_FAILED -10
 
 #if defined(_MSC_VER)
   #pragma pack(pop)
@@ -115,6 +116,9 @@ UHF_API int UHF_CALL UHF_WriteTag(uint8_t bank, uint8_t wordPtr,
                                   const char* pwdHex);
 UHF_API int UHF_CALL UHF_WriteEpc(const char* epcHex, const char* pwdHex);
 UHF_API int UHF_CALL UHF_WriteEpcSelected(const char* targetEpcHex, const char* newEpcHex,
+                                          const char* pwdHex, int forceMulti);
+UHF_API int UHF_CALL UHF_WriteTagSelected(const char* targetEpcHex, uint8_t bank, uint8_t wordPtr,
+                                          const uint8_t* data, int dataLenBytes,
                                           const char* pwdHex, int forceMulti);
 UHF_API int UHF_CALL UHF_SelectEpc(const char* epcHex);
 UHF_API int UHF_CALL UHF_ClearSelect(void);
