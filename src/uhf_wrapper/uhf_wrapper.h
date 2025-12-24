@@ -22,6 +22,7 @@ extern "C" {
 #define UHF_MAX_EPC_BYTES 64
 #define UHF_MAX_EPC_HEX   (UHF_MAX_EPC_BYTES * 2)
 #define UHF_TS_LEN        6
+#define UHF_WHITELIST_ENTRY_BYTES 32
 
 #if defined(_MSC_VER)
   #pragma pack(push, 1)
@@ -47,6 +48,16 @@ typedef struct UHF_DeviceInfo {
   char sn[32];
 } UHF_DeviceInfo;
 
+#define UHF_ERR_OK 0
+#define UHF_ERR_UNKNOWN -1
+#define UHF_ERR_INVALID_ARG -2
+#define UHF_ERR_VENDOR_MISSING -3
+#define UHF_ERR_VENDOR_CALL_FAILED -4
+#define UHF_ERR_NOT_SUPPORTED -5
+#define UHF_ERR_NOT_OPEN -6
+#define UHF_ERR_NOT_CONNECTED -7
+#define UHF_ERR_NO_DEVICE -8
+
 #if defined(_MSC_VER)
   #pragma pack(pop)
 #endif
@@ -54,6 +65,7 @@ typedef struct UHF_DeviceInfo {
 UHF_API int UHF_CALL UHF_Init(void);
 UHF_API void UHF_CALL UHF_Shutdown(void);
 UHF_API const char* UHF_CALL UHF_GetLastError(void);
+UHF_API int UHF_CALL UHF_GetLastErrorCode(void);
 
 UHF_API int UHF_CALL UHF_GetUsbCount(void);
 UHF_API int UHF_CALL UHF_GetUsbInfoRaw(uint16_t index, uint8_t* outBuf, int outBufLen);
@@ -84,6 +96,12 @@ UHF_API int UHF_CALL UHF_SetPowerPct(int pct);
 
 UHF_API int UHF_CALL UHF_RelayOn(void);
 UHF_API int UHF_CALL UHF_RelayOff(void);
+UHF_API int UHF_CALL UHF_Relay2On(void);
+UHF_API int UHF_CALL UHF_Relay2Off(void);
+UHF_API int UHF_CALL UHF_Out1On(void);
+UHF_API int UHF_CALL UHF_Out1Off(void);
+UHF_API int UHF_CALL UHF_Out2On(void);
+UHF_API int UHF_CALL UHF_Out2Off(void);
 
 UHF_API int UHF_CALL UHF_GetFreq(uint8_t* outFreq2);
 UHF_API int UHF_CALL UHF_SetFreq(uint8_t freq0, uint8_t freq1);
@@ -95,11 +113,21 @@ UHF_API int UHF_CALL UHF_WriteTag(uint8_t bank, uint8_t wordPtr,
                                   const uint8_t* data, int dataLenBytes,
                                   const char* pwdHex);
 UHF_API int UHF_CALL UHF_WriteEpc(const char* epcHex, const char* pwdHex);
+UHF_API int UHF_CALL UHF_SelectEpc(const char* epcHex);
+UHF_API int UHF_CALL UHF_ClearSelect(void);
 
-// NOTE: Vendor documentation does not specify SWHid_LockCardG2 signature.
-// This wrapper keeps the function but returns an error by default.
-// Use the vendor export (re-exported 1:1) when you know the exact signature.
+// NOTE: lockType/lockMem are combined into a single lockCfg byte when possible.
 UHF_API int UHF_CALL UHF_LockTag(uint8_t lockType, uint8_t lockMem, const char* pwdHex);
+
+UHF_API int UHF_CALL UHF_WhitelistCount(int* outCount);
+UHF_API int UHF_CALL UHF_WhitelistGetRaw(uint16_t index, uint8_t* outBuf, int outBufLen, int* outBytes);
+UHF_API int UHF_CALL UHF_WhitelistGetHex(uint16_t index, char* outHex, int outHexLen, int* outBytes);
+UHF_API int UHF_CALL UHF_WhitelistAddEpc(const char* epcHex);
+UHF_API int UHF_CALL UHF_WhitelistRemoveEpc(const char* epcHex);
+UHF_API int UHF_CALL UHF_WhitelistClear(void);
+
+UHF_API int UHF_CALL UHF_ModuleCommand(uint8_t cmd, const uint8_t* payload, int payloadLen,
+                                       uint8_t* outBuf, int outBufLen, int* outRespLen);
 
 #ifdef __cplusplus
 }

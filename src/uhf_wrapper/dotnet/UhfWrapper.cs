@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace UhfWrapper
 {
@@ -33,6 +34,7 @@ namespace UhfWrapper
     public static class Native
     {
         private const string Dll = "UhfWrapper.dll";
+        public const int UHF_WHITELIST_ENTRY_BYTES = 32;
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int UHF_Init();
@@ -43,10 +45,18 @@ namespace UhfWrapper
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         private static extern IntPtr UHF_GetLastError();
 
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        private static extern int UHF_GetLastErrorCode();
+
         public static string GetLastError()
         {
             var ptr = UHF_GetLastError();
             return Marshal.PtrToStringAnsi(ptr) ?? string.Empty;
+        }
+
+        public static int GetLastErrorCode()
+        {
+            return UHF_GetLastErrorCode();
         }
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
@@ -119,6 +129,24 @@ namespace UhfWrapper
         public static extern int UHF_RelayOff();
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_Relay2On();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_Relay2Off();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_Out1On();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_Out1Off();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_Out2On();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_Out2Off();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int UHF_GetFreq(byte[] outFreq2);
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
@@ -138,7 +166,35 @@ namespace UhfWrapper
         public static extern int UHF_WriteEpc(string epcHex, string pwdHex);
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
+        public static extern int UHF_SelectEpc(string epcHex);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_ClearSelect();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
         public static extern int UHF_LockTag(byte lockType, byte lockMem, string pwdHex);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_WhitelistCount(out int count);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_WhitelistGetRaw(ushort index, [Out] byte[] outBuf, int outBufLen, out int outBytes);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
+        public static extern int UHF_WhitelistGetHex(ushort index, StringBuilder outHex, int outHexLen, out int outBytes);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
+        public static extern int UHF_WhitelistAddEpc(string epcHex);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
+        public static extern int UHF_WhitelistRemoveEpc(string epcHex);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_WhitelistClear();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_ModuleCommand(byte cmd, byte[] payload, int payloadLen,
+                                                  [Out] byte[] outBuf, int outBufLen, out int outRespLen);
 
         // Vendor (partial) 1:1 mapping for common functions. All vendor exports
         // are still available via the native re-export if needed.

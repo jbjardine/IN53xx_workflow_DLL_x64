@@ -27,6 +27,8 @@ struct CliOptions {
   int antenna = -1;
   char epc_prefix[UHF_MAX_EPC_HEX + 1] = {0};
   int epc_prefix_len = 0;
+  char target_epc[UHF_MAX_EPC_HEX + 1] = {0};
+  int target_epc_len = 0;
 };
 
 static void usage() {
@@ -45,6 +47,7 @@ static void usage() {
   printf("  --min-rssi <dbm>\n");
   printf("  --epc-prefix <hex>\n");
   printf("  --antenna <n>\n\n");
+  printf("  --target <epcHex> (write/write-epc target selection)\n\n");
 
   printf("Commands:\n");
   printf("  count\n");
@@ -72,12 +75,27 @@ static void usage() {
   printf("  power-set-preset <low|med|high>\n");
   printf("  relay-on\n");
   printf("  relay-off\n");
+  printf("  relay2-on\n");
+  printf("  relay2-off\n");
+  printf("  out1-on\n");
+  printf("  out1-off\n");
+  printf("  out2-on\n");
+  printf("  out2-off\n");
   printf("  freq-get\n");
   printf("  freq-set <byte0> <byte1>   (hex like 0x31 0x80 or decimal)\n");
   printf("  freq-set-region <EU|US|JP|CN|KR|AU|NZ|IN|SG|HK|TW|CA|MX|BR|IL|ZA|TH|MY>\n");
+  printf("  select-epc <epcHex>\n");
+  printf("  select-clear\n");
   printf("  read <bank> <wordPtr> <wordCount> <pwdHex>\n");
   printf("  write <bank> <wordPtr> <hexData> <pwdHex>\n");
   printf("  write-epc <epcHex> <pwdHex>\n");
+  printf("  lock <lockType> <lockMem> <pwdHex>\n");
+  printf("  whitelist-count\n");
+  printf("  whitelist-get <index>\n");
+  printf("  whitelist-add <epcHex>\n");
+  printf("  whitelist-del <epcHex>\n");
+  printf("  whitelist-clear\n");
+  printf("  module-cmd <cmdHex> [payloadHex]\n");
 }
 
 static int parse_hex(const char* hex, unsigned char* out, int out_cap) {
@@ -126,6 +144,19 @@ static int normalize_hex(const char* hex, char* out, int out_cap) {
   return len;
 }
 
+static const char* friendly_result(int ok) {
+  static char buf[256];
+  if (ok) return "OK";
+  int code = UHF_GetLastErrorCode();
+  const char* msg = UHF_GetLastError();
+  if (msg && msg[0]) {
+    snprintf(buf, sizeof(buf), "FAILED (code %d): %s", code, msg);
+  } else {
+    snprintf(buf, sizeof(buf), "FAILED (code %d)", code);
+  }
+  return buf;
+}
+
 static int parse_byte(const char* s, unsigned char* out) {
   if (!s || !out) return 0;
   char* end = nullptr;
@@ -154,7 +185,7 @@ static void print_friendly_bool(const char* label, int v) {
 }
 
 static void print_friendly_ok(const char* label, int ok) {
-  printf("%s: %s\n", label, ok ? "OK" : "FAILED");
+  printf("%s: %s\n", label, friendly_result(ok));
 }
 
 static void print_friendly_int(const char* label, int v) {
@@ -377,6 +408,13 @@ int main(int argc, char** argv) {
     } else if (strcmp(a, "--antenna") == 0 && argi + 1 < argc) {
       opt.antenna = atoi(argv[++argi]);
       ++argi;
+    } else if (strcmp(a, "--target") == 0 && argi + 1 < argc) {
+      opt.target_epc_len = normalize_hex(argv[++argi], opt.target_epc, sizeof(opt.target_epc));
+      if (opt.target_epc_len <= 0 || (opt.target_epc_len % 2) != 0) {
+        printf("Invalid target EPC\n");
+        return 1;
+      }
+      ++argi;
     } else if (strcmp(a, "--help") == 0 || strcmp(a, "-h") == 0) {
       usage();
       return 0;
@@ -398,6 +436,7 @@ int main(int argc, char** argv) {
   const char* cmd = argv[argi++];
   int needs_open = 0;
   int exit_code = 0;
+  int handled = 0;
 
   if (strcmp(cmd, "count") == 0) {
     int count = UHF_GetUsbCount();
@@ -410,6 +449,7 @@ int main(int argc, char** argv) {
     } else {
       printf("USB count: %d\n", count);
     }
+    handled = 1;
   } else if (strcmp(cmd, "usbinfo") == 0) {
     int count = UHF_GetUsbCount();
     if (opt.out == OUT_JSON) {
@@ -448,8 +488,10 @@ int main(int argc, char** argv) {
     if (opt.out == OUT_JSON) {
       printf("]}\n");
     }
+    handled = 1;
   } else if (strcmp(cmd, "status") == 0) {
     exit_code = handle_status(opt);
+    handled = 1;
   } else if (strcmp(cmd, "open") == 0) {
     int ok = UHF_Open((unsigned short)opt.index);
     printf("Open: %d\n", ok);
@@ -457,6 +499,7 @@ int main(int argc, char** argv) {
       printf("Error: %s\n", UHF_GetLastError());
       exit_code = 1;
     }
+    handled = 1;
   } else if (strcmp(cmd, "close") == 0) {
     int ok = UHF_Close();
     printf("Close: %d\n", ok);
@@ -464,6 +507,7 @@ int main(int argc, char** argv) {
       printf("Error: %s\n", UHF_GetLastError());
       exit_code = 1;
     }
+    handled = 1;
   } else if (strcmp(cmd, "info") == 0 || strcmp(cmd, "start") == 0 ||
              strcmp(cmd, "stop") == 0 || strcmp(cmd, "buffer-clear") == 0 ||
              strncmp(cmd, "peek", 4) == 0 || strncmp(cmd, "pop", 3) == 0 ||
@@ -473,10 +517,19 @@ int main(int argc, char** argv) {
              strcmp(cmd, "power-get-pct") == 0 || strcmp(cmd, "power-set-pct") == 0 ||
              strcmp(cmd, "power-set-preset") == 0 ||
              strcmp(cmd, "relay-on") == 0 || strcmp(cmd, "relay-off") == 0 ||
+             strcmp(cmd, "relay2-on") == 0 || strcmp(cmd, "relay2-off") == 0 ||
+             strcmp(cmd, "out1-on") == 0 || strcmp(cmd, "out1-off") == 0 ||
+             strcmp(cmd, "out2-on") == 0 || strcmp(cmd, "out2-off") == 0 ||
              strcmp(cmd, "freq-get") == 0 || strcmp(cmd, "freq-set") == 0 ||
              strcmp(cmd, "freq-set-region") == 0 ||
+             strcmp(cmd, "select-epc") == 0 || strcmp(cmd, "select-clear") == 0 ||
              strcmp(cmd, "read") == 0 || strcmp(cmd, "write") == 0 ||
-             strcmp(cmd, "write-epc") == 0) {
+             strcmp(cmd, "write-epc") == 0 ||
+             strcmp(cmd, "lock") == 0 ||
+             strcmp(cmd, "whitelist-count") == 0 || strcmp(cmd, "whitelist-get") == 0 ||
+             strcmp(cmd, "whitelist-add") == 0 || strcmp(cmd, "whitelist-del") == 0 ||
+             strcmp(cmd, "whitelist-clear") == 0 ||
+             strcmp(cmd, "module-cmd") == 0) {
     needs_open = 1;
   }
 
@@ -488,7 +541,9 @@ int main(int argc, char** argv) {
     }
   }
 
-  if (strcmp(cmd, "info") == 0) {
+  if (handled) {
+    // No-op: already handled above.
+  } else if (strcmp(cmd, "info") == 0) {
     UHF_DeviceInfo info{};
     if (UHF_GetInfo(&info)) {
       if (opt.out == OUT_JSON) {
@@ -579,7 +634,8 @@ int main(int argc, char** argv) {
         ++printed;
       }
       if (opt.friendly && opt.out == OUT_TEXT) {
-        print_friendly_ok("Read once", ok);
+        int ok_msg = (printed == 0) ? 1 : ok;
+        print_friendly_ok("Read once", ok_msg);
         print_friendly_int("Tags read", printed);
         if (printed == 0) printf("No tags found.\n");
       }
@@ -730,6 +786,78 @@ int main(int argc, char** argv) {
     int ok = UHF_RelayOff();
     if (opt.friendly) print_friendly_ok("Relay OFF", ok);
     else printf("RelayOff: %d\n", ok);
+  } else if (strcmp(cmd, "relay2-on") == 0) {
+    int ok = UHF_Relay2On();
+    if (opt.friendly) {
+      printf("Relay2 On: %s\n", friendly_result(ok));
+      if (!ok) printf("Error: %s\n", UHF_GetLastError());
+    } else {
+      printf("Relay2On: %d\n", ok);
+    }
+    if (!ok) {
+      printf("Error: %s\n", UHF_GetLastError());
+      exit_code = 1;
+    }
+  } else if (strcmp(cmd, "relay2-off") == 0) {
+    int ok = UHF_Relay2Off();
+    if (opt.friendly) {
+      printf("Relay2 Off: %s\n", friendly_result(ok));
+      if (!ok) printf("Error: %s\n", UHF_GetLastError());
+    } else {
+      printf("Relay2Off: %d\n", ok);
+    }
+    if (!ok) {
+      printf("Error: %s\n", UHF_GetLastError());
+      exit_code = 1;
+    }
+  } else if (strcmp(cmd, "out1-on") == 0) {
+    int ok = UHF_Out1On();
+    if (opt.friendly) {
+      printf("Out1 On: %s\n", friendly_result(ok));
+      if (!ok) printf("Error: %s\n", UHF_GetLastError());
+    } else {
+      printf("Out1On: %d\n", ok);
+    }
+    if (!ok) {
+      printf("Error: %s\n", UHF_GetLastError());
+      exit_code = 1;
+    }
+  } else if (strcmp(cmd, "out1-off") == 0) {
+    int ok = UHF_Out1Off();
+    if (opt.friendly) {
+      printf("Out1 Off: %s\n", friendly_result(ok));
+      if (!ok) printf("Error: %s\n", UHF_GetLastError());
+    } else {
+      printf("Out1Off: %d\n", ok);
+    }
+    if (!ok) {
+      printf("Error: %s\n", UHF_GetLastError());
+      exit_code = 1;
+    }
+  } else if (strcmp(cmd, "out2-on") == 0) {
+    int ok = UHF_Out2On();
+    if (opt.friendly) {
+      printf("Out2 On: %s\n", friendly_result(ok));
+      if (!ok) printf("Error: %s\n", UHF_GetLastError());
+    } else {
+      printf("Out2On: %d\n", ok);
+    }
+    if (!ok) {
+      printf("Error: %s\n", UHF_GetLastError());
+      exit_code = 1;
+    }
+  } else if (strcmp(cmd, "out2-off") == 0) {
+    int ok = UHF_Out2Off();
+    if (opt.friendly) {
+      printf("Out2 Off: %s\n", friendly_result(ok));
+      if (!ok) printf("Error: %s\n", UHF_GetLastError());
+    } else {
+      printf("Out2Off: %d\n", ok);
+    }
+    if (!ok) {
+      printf("Error: %s\n", UHF_GetLastError());
+      exit_code = 1;
+    }
   } else if (strcmp(cmd, "freq-get") == 0) {
     unsigned char freq[2] = {0};
     int ok = UHF_GetFreq(freq);
@@ -774,6 +902,34 @@ int main(int argc, char** argv) {
         }
       }
     }
+  } else if (strcmp(cmd, "select-epc") == 0) {
+    if (argi >= argc) {
+      printf("Missing EPC\n");
+      exit_code = 1;
+    } else {
+      const char* epcHex = argv[argi++];
+      int ok = UHF_SelectEpc(epcHex);
+      if (opt.friendly) {
+        print_friendly_ok("Select EPC", ok);
+      } else {
+        printf("ok=%d\n", ok);
+      }
+      if (!ok) {
+        printf("Error: %s\n", UHF_GetLastError());
+        exit_code = 1;
+      }
+    }
+  } else if (strcmp(cmd, "select-clear") == 0) {
+    int ok = UHF_ClearSelect();
+    if (opt.friendly) {
+      print_friendly_ok("Clear selection", ok);
+    } else {
+      printf("ok=%d\n", ok);
+    }
+    if (!ok) {
+      printf("Error: %s\n", UHF_GetLastError());
+      exit_code = 1;
+    }
   } else if (strcmp(cmd, "read") == 0) {
     if (argi + 4 > argc) {
       printf("Missing args\n");
@@ -812,11 +968,27 @@ int main(int argc, char** argv) {
         printf("Invalid hex data\n");
         exit_code = 1;
       } else {
+        if (opt.target_epc_len > 0) {
+          int sel_ok = UHF_SelectEpc(opt.target_epc);
+          if (!sel_ok) {
+            printf("Select EPC failed: %s\n", UHF_GetLastError());
+            exit_code = 1;
+            goto write_done;
+          }
+        }
         int ok = UHF_WriteTag((uint8_t)bank, (uint8_t)wordPtr, data, dataLen, pwdHex);
         if (opt.friendly) {
           print_friendly_ok("Write", ok);
         } else {
           printf("ok=%d\n", ok);
+        }
+        if (!ok) {
+          printf("Error: %s\n", UHF_GetLastError());
+          exit_code = 1;
+        }
+write_done:
+        if (opt.target_epc_len > 0) {
+          UHF_ClearSelect();
         }
       }
     }
@@ -827,11 +999,189 @@ int main(int argc, char** argv) {
     } else {
       const char* epcHex = argv[argi++];
       const char* pwdHex = argv[argi++];
+      if (opt.target_epc_len > 0) {
+        int sel_ok = UHF_SelectEpc(opt.target_epc);
+        if (!sel_ok) {
+          printf("Select EPC failed: %s\n", UHF_GetLastError());
+          exit_code = 1;
+          goto write_epc_done;
+        }
+      }
       int ok = UHF_WriteEpc(epcHex, pwdHex);
       if (opt.friendly) {
         print_friendly_ok("Write EPC", ok);
       } else {
         printf("ok=%d\n", ok);
+      }
+      if (!ok) {
+        printf("Error: %s\n", UHF_GetLastError());
+        exit_code = 1;
+      }
+write_epc_done:
+      if (opt.target_epc_len > 0) {
+        UHF_ClearSelect();
+      }
+    }
+  } else if (strcmp(cmd, "lock") == 0) {
+    if (argi + 2 >= argc) {
+      printf("Missing args: lock <lockType> <lockMem> <pwdHex>\n");
+      exit_code = 1;
+    } else {
+      unsigned char lockType = 0;
+      unsigned char lockMem = 0;
+      if (!parse_byte(argv[argi++], &lockType) || !parse_byte(argv[argi++], &lockMem)) {
+        printf("Invalid lockType/lockMem\n");
+        exit_code = 1;
+      } else {
+        const char* pwdHex = argv[argi++];
+        int ok = UHF_LockTag(lockType, lockMem, pwdHex);
+        if (opt.friendly) {
+          printf("Lock: %s\n", friendly_result(ok));
+          if (!ok) printf("Error: %s\n", UHF_GetLastError());
+        } else {
+          printf("Lock: %d\n", ok);
+        }
+        if (!ok) {
+          printf("Error: %s\n", UHF_GetLastError());
+          exit_code = 1;
+        }
+      }
+    }
+  } else if (strcmp(cmd, "whitelist-count") == 0) {
+    int count = 0;
+    int ok = UHF_WhitelistCount(&count);
+    if (opt.friendly) {
+      printf("Whitelist Count: %s\n", friendly_result(ok));
+      if (ok) printf("Count: %d\n", count);
+      if (!ok) printf("Error: %s\n", UHF_GetLastError());
+    } else {
+      if (!ok) {
+        printf("Whitelist count failed: %s\n", UHF_GetLastError());
+        exit_code = 1;
+      } else {
+        printf("%d\n", count);
+      }
+    }
+  } else if (strcmp(cmd, "whitelist-get") == 0) {
+    if (argi >= argc) {
+      printf("Missing index: whitelist-get <index>\n");
+      exit_code = 1;
+    } else {
+      int idx = atoi(argv[argi++]);
+      if (idx < 0 || idx > 65535) {
+        printf("Invalid index\n");
+        exit_code = 1;
+      } else {
+        char hex[UHF_WHITELIST_ENTRY_BYTES * 2 + 1];
+        int bytes = 0;
+        int ok = UHF_WhitelistGetHex((uint16_t)idx, hex, sizeof(hex), &bytes);
+        if (opt.friendly) {
+          printf("Whitelist Get: %s\n", friendly_result(ok));
+          if (ok) {
+            printf("Bytes: %d\n", bytes);
+            printf("Data: %s\n", hex);
+          }
+          if (!ok) printf("Error: %s\n", UHF_GetLastError());
+        } else {
+          if (!ok) {
+            printf("Whitelist get failed: %s\n", UHF_GetLastError());
+            exit_code = 1;
+          } else {
+            printf("%s\n", hex);
+          }
+        }
+      }
+    }
+  } else if (strcmp(cmd, "whitelist-add") == 0) {
+    if (argi >= argc) {
+      printf("Missing EPC: whitelist-add <epcHex>\n");
+      exit_code = 1;
+    } else {
+      const char* epcHex = argv[argi++];
+      int ok = UHF_WhitelistAddEpc(epcHex);
+      if (opt.friendly) {
+        printf("Whitelist Add: %s\n", friendly_result(ok));
+        if (!ok) printf("Error: %s\n", UHF_GetLastError());
+      } else {
+        printf("Whitelist Add: %d\n", ok);
+      }
+      if (!ok) {
+        printf("Error: %s\n", UHF_GetLastError());
+        exit_code = 1;
+      }
+    }
+  } else if (strcmp(cmd, "whitelist-del") == 0) {
+    if (argi >= argc) {
+      printf("Missing EPC: whitelist-del <epcHex>\n");
+      exit_code = 1;
+    } else {
+      const char* epcHex = argv[argi++];
+      int ok = UHF_WhitelistRemoveEpc(epcHex);
+      if (opt.friendly) {
+        printf("Whitelist Del: %s\n", friendly_result(ok));
+        if (!ok) printf("Error: %s\n", UHF_GetLastError());
+      } else {
+        printf("Whitelist Del: %d\n", ok);
+      }
+      if (!ok) {
+        printf("Error: %s\n", UHF_GetLastError());
+        exit_code = 1;
+      }
+    }
+  } else if (strcmp(cmd, "whitelist-clear") == 0) {
+    int ok = UHF_WhitelistClear();
+    if (opt.friendly) {
+      printf("Whitelist Clear: %s\n", friendly_result(ok));
+      if (!ok) printf("Error: %s\n", UHF_GetLastError());
+    } else {
+      printf("Whitelist Clear: %d\n", ok);
+    }
+    if (!ok) {
+      printf("Error: %s\n", UHF_GetLastError());
+      exit_code = 1;
+    }
+  } else if (strcmp(cmd, "module-cmd") == 0) {
+    if (argi >= argc) {
+      printf("Missing cmdHex: module-cmd <cmdHex> [payloadHex]\n");
+      exit_code = 1;
+    } else {
+      unsigned char cmdHex = 0;
+      if (!parse_byte(argv[argi++], &cmdHex)) {
+        printf("Invalid cmdHex\n");
+        exit_code = 1;
+      } else {
+        int valid = 1;
+        unsigned char payload[1024];
+        int payload_len = 0;
+        if (argi < argc) {
+          payload_len = parse_hex(argv[argi++], payload, (int)sizeof(payload));
+          if (payload_len < 0) {
+            printf("Invalid payload hex\n");
+            exit_code = 1;
+            valid = 0;
+          }
+        }
+        if (valid) {
+          unsigned char resp[1024];
+          int resp_len = 0;
+          int ok = UHF_ModuleCommand((uint8_t)cmdHex, payload, payload_len,
+                                     resp, (int)sizeof(resp), &resp_len);
+          if (opt.friendly) {
+            printf("Module Cmd: %s\n", friendly_result(ok));
+            if (ok) {
+              printf("Response (%d bytes): ", resp_len);
+              print_hex(resp, resp_len);
+            }
+            if (!ok) printf("Error: %s\n", UHF_GetLastError());
+          } else {
+            if (!ok) {
+              printf("Module command failed: %s\n", UHF_GetLastError());
+              exit_code = 1;
+            } else {
+              print_hex(resp, resp_len);
+            }
+          }
+        }
       }
     }
   } else {

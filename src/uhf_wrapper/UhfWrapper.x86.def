@@ -56,28 +56,41 @@ EXPORTS
   SWHid_CheckModule
   SWHid_ClearTagBuf
   SWHid_CloseDevice
+  SWHid_CommunicateWithModule
   SWHid_DefaultDeviceNetParam
   SWHid_DefaultDeviceParam
+  SWHid_DelAllWhiteList
   SWHid_DelDevCache
-  SWHid_DeleteAllWhiteList
-  SWHid_DeleteOneWhiteList
+  SWHid_DelOneWhiteList
   SWHid_DeviceSelfKill
+  SWHid_DeviceSelfKill4G
+  SWHid_DeviceSelfKillRD
   SWHid_DisableNetAnswer
   SWHid_EnableNetAnswer
   SWHid_GPRSGetLBS
   SWHid_GPRSGetSIMState
+  SWHid_GPRSGetSN
   SWHid_GPRSGetSignal
   SWHid_GetDevCache
   SWHid_GetDeviceSystemInfo
+  SWHid_GetDeviceSystemInfo4G
+  SWHid_GetDeviceSystemInfoRD
   SWHid_GetGPS
   SWHid_GetTagBuf
   SWHid_GetUsbCount
   SWHid_GetUsbInfo
   SWHid_InventoryG2
+  SWHid_KillCardG2
   SWHid_LockCardG2
   SWHid_OpenDevice
+  SWHid_Out1Off
+  SWHid_Out1On
+  SWHid_Out2Off
+  SWHid_Out2On
   SWHid_ReadCardG2
   SWHid_ReadDeviceID
+  SWHid_ReadDeviceID4G
+  SWHid_ReadDeviceIDRD
   SWHid_ReadDeviceNetParam
   SWHid_ReadDeviceOneParam
   SWHid_ReadDeviceParam
@@ -86,26 +99,41 @@ EXPORTS
   SWHid_ReadFreq
   SWHid_ReadTransState
   SWHid_ReadWhiteList
+  SWHid_ReadWhiteListCnt
   SWHid_RebootDevice
+  SWHid_RebootDevice4G
+  SWHid_RebootDeviceRD
+  SWHid_Relay2Off
+  SWHid_Relay2On
   SWHid_RelayOff
   SWHid_RelayOn
   SWHid_SendBuffer
   SWHid_SetCallback
   SWHid_SetCallbackDebug
   SWHid_SetDeviceID
+  SWHid_SetDeviceID4G
+  SWHid_SetDeviceIDRD
   SWHid_SetDeviceNetParam
   SWHid_SetDeviceOneParam
   SWHid_SetDeviceParam
   SWHid_SetDeviceSpecialParam
   SWHid_SetDeviceSystemInfo
+  SWHid_SetDeviceSystemInfo4G
+  SWHid_SetDeviceSystemInfoRD
   SWHid_SetDeviceTime
   SWHid_SetFreq
+  SWHid_SetPWOff
+  SWHid_SetPWOn
   SWHid_StartRead
   SWHid_StopRead
   SWHid_UpgradeDevData
   SWHid_UpgradeDevDataIn
+  SWHid_UpgradeDevDataIn4G
+  SWHid_UpgradeDevDataInRD
   SWHid_UpgradeDevEnd
   SWHid_UpgradeDevEndIn
+  SWHid_UpgradeDevEndIn4G
+  SWHid_UpgradeDevEndInRD
   SWHid_WriteCardG2
   SWHid_WriteEPCG2
   SWHid_WriteWhiteList
