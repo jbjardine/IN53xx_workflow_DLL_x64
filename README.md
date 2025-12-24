@@ -107,6 +107,8 @@ Minimal P/Invoke projects are provided:
 
 - User guide: `docs/USER_GUIDE.md`
 - Change log: `history.md`
+- Structure: `docs/STRUCTURE.md`
+- Architecture: `docs/ARCHITECTURE.md`
 
 ## License
 
