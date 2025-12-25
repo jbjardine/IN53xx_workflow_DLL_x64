@@ -121,6 +121,20 @@ Notes :
 - `UHF_CalibrateByTag` peut appliquer directement la puissance + filtre RSSI (`applySettings=1`)
   ou juste renvoyer les valeurs (`applySettings=0`).
 
+Lecture calibree (profil deja charge) :
+```
+UHF_ReadOnceCalibrated(300, tags, 256, &count);
+UHF_ReadStreamCalibrated(5000, tags, 256, &count);
+```
+
+Persistence (CLI) :
+```
+UhfWrapperCli.exe --friendly calib-save C:\temp\uhf_calib.txt
+UhfWrapperCli.exe --friendly calib-load C:\temp\uhf_calib.txt --apply
+UhfWrapperCli.exe --friendly read-once-calib
+UhfWrapperCli.exe --friendly read-stream-calib --duration 2000
+```
+
 Selection (cibler un tag) :
 ```
 UhfWrapperCli.exe --friendly select-epc <EPC_HEX>

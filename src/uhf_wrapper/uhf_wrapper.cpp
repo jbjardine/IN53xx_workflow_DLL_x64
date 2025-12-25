@@ -43,6 +43,8 @@ static int g_dedup_window_ms = 0;
 static int g_dedup_key_mode = 0; // 0 = EPC only, 1 = EPC + antenna
 static int g_rssi_min_dbm = std::numeric_limits<int>::min();
 static int g_rssi_max_dbm = std::numeric_limits<int>::max();
+static int g_has_calibration = 0;
+static UHF_CalibrationResult g_calibration = {};
 static std::unordered_map<std::string, int64_t> g_dedup_cache;
 static std::mutex g_dedup_mutex;
 static const uint8_t kParamWorkMode = 0x02;
@@ -1834,7 +1836,163 @@ UHF_API int UHF_CALL UHF_CalibrateByTag(const char* targetEpcHex,
   outResult->rssiFilterMinDbm = rssiFilterMin;
   outResult->rssiFilterMaxDbm = rssiFilterMax;
   outResult->sampleCount = sampleCount;
+  g_calibration = *outResult;
+  g_has_calibration = 1;
   return 1;
+}
+
+UHF_API int UHF_CALL UHF_CalibrationApply(const UHF_CalibrationResult* res) {
+  if (!res) {
+    set_last_error("Invalid calibration pointer", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  if (res->rssiFilterMinDbm > res->rssiFilterMaxDbm) {
+    set_last_error("Invalid RSSI filter range", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  if (!UHF_SetPowerDbm(res->recommendedPowerDbm)) {
+    set_last_error("SetPowerDbm failed", UHF_ERR_VENDOR_CALL_FAILED);
+    return 0;
+  }
+  if (!UHF_RssiFilterSet(res->rssiFilterMinDbm, res->rssiFilterMaxDbm)) {
+    set_last_error("RssiFilterSet failed", UHF_ERR_VENDOR_CALL_FAILED);
+    return 0;
+  }
+  g_calibration = *res;
+  g_has_calibration = 1;
+  return 1;
+}
+
+UHF_API int UHF_CALL UHF_CalibrationGetCurrent(UHF_CalibrationResult* outResult) {
+  if (!outResult) {
+    set_last_error("Invalid output pointer", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  if (!g_has_calibration) {
+    set_last_error("Calibration not set", UHF_ERR_CALIBRATION_MISSING);
+    return 0;
+  }
+  *outResult = g_calibration;
+  return 1;
+}
+
+UHF_API int UHF_CALL UHF_CalibrationSave(const char* path) {
+  if (!path || !path[0]) {
+    set_last_error("Invalid file path", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  if (!g_has_calibration) {
+    set_last_error("Calibration not set", UHF_ERR_CALIBRATION_MISSING);
+    return 0;
+  }
+  FILE* f = fopen(path, "wb");
+  if (!f) {
+    set_last_error("Failed to open calibration file for write", UHF_ERR_UNKNOWN);
+    return 0;
+  }
+  fprintf(f, "# UHF_CALIBRATION_V1\n");
+  fprintf(f, "minDetectPowerDbm=%d\n", g_calibration.minDetectPowerDbm);
+  fprintf(f, "recommendedPowerDbm=%d\n", g_calibration.recommendedPowerDbm);
+  fprintf(f, "powerMarginDbm=%d\n", g_calibration.powerMarginDbm);
+  fprintf(f, "rssiMinDbm=%d\n", g_calibration.rssiMinDbm);
+  fprintf(f, "rssiMaxDbm=%d\n", g_calibration.rssiMaxDbm);
+  fprintf(f, "rssiAvgDbm=%d\n", g_calibration.rssiAvgDbm);
+  fprintf(f, "rssiMarginDbm=%d\n", g_calibration.rssiMarginDbm);
+  fprintf(f, "rssiFilterMinDbm=%d\n", g_calibration.rssiFilterMinDbm);
+  fprintf(f, "rssiFilterMaxDbm=%d\n", g_calibration.rssiFilterMaxDbm);
+  fprintf(f, "sampleCount=%d\n", g_calibration.sampleCount);
+  fclose(f);
+  return 1;
+}
+
+UHF_API int UHF_CALL UHF_CalibrationLoad(const char* path, int applySettings,
+                                         UHF_CalibrationResult* outResult) {
+  if (!path || !path[0]) {
+    set_last_error("Invalid file path", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  FILE* f = fopen(path, "rb");
+  if (!f) {
+    set_last_error("Failed to open calibration file", UHF_ERR_UNKNOWN);
+    return 0;
+  }
+  UHF_CalibrationResult res{};
+  int got_rec = 0;
+  int got_min = 0;
+  int got_max = 0;
+  char line[256];
+  while (fgets(line, sizeof(line), f)) {
+    if (line[0] == '#' || line[0] == '\n' || line[0] == '\r') continue;
+    char key[64] = {0};
+    char val[64] = {0};
+    if (sscanf(line, "%63[^=]=%63s", key, val) != 2) {
+      continue;
+    }
+    int v = atoi(val);
+    if (strcmp(key, "minDetectPowerDbm") == 0) res.minDetectPowerDbm = v;
+    else if (strcmp(key, "recommendedPowerDbm") == 0) { res.recommendedPowerDbm = v; got_rec = 1; }
+    else if (strcmp(key, "powerMarginDbm") == 0) res.powerMarginDbm = v;
+    else if (strcmp(key, "rssiMinDbm") == 0) res.rssiMinDbm = v;
+    else if (strcmp(key, "rssiMaxDbm") == 0) res.rssiMaxDbm = v;
+    else if (strcmp(key, "rssiAvgDbm") == 0) res.rssiAvgDbm = v;
+    else if (strcmp(key, "rssiMarginDbm") == 0) res.rssiMarginDbm = v;
+    else if (strcmp(key, "rssiFilterMinDbm") == 0) { res.rssiFilterMinDbm = v; got_min = 1; }
+    else if (strcmp(key, "rssiFilterMaxDbm") == 0) { res.rssiFilterMaxDbm = v; got_max = 1; }
+    else if (strcmp(key, "sampleCount") == 0) res.sampleCount = v;
+  }
+  fclose(f);
+  if (!got_rec || !got_min || !got_max) {
+    set_last_error("Invalid calibration file", UHF_ERR_CALIBRATION_FAILED);
+    return 0;
+  }
+  g_calibration = res;
+  g_has_calibration = 1;
+  if (applySettings) {
+    if (!UHF_CalibrationApply(&res)) {
+      return 0;
+    }
+  }
+  if (outResult) {
+    *outResult = res;
+  }
+  return 1;
+}
+
+UHF_API int UHF_CALL UHF_ReadOnceCalibrated(int timeoutMs, UHF_Tag* outTags, int maxTags, int* outCount) {
+  if (!g_has_calibration) {
+    set_last_error("Calibration not set", UHF_ERR_CALIBRATION_MISSING);
+    return 0;
+  }
+  if (!UHF_CalibrationApply(&g_calibration)) {
+    return 0;
+  }
+  return UHF_ReadOnce(timeoutMs, outTags, maxTags, outCount);
+}
+
+UHF_API int UHF_CALL UHF_ReadStreamCalibrated(int durationMs, UHF_Tag* outTags, int maxTags, int* outCount) {
+  if (!outTags || maxTags <= 0 || !outCount) {
+    set_last_error("Invalid output buffer", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  if (!g_has_calibration) {
+    set_last_error("Calibration not set", UHF_ERR_CALIBRATION_MISSING);
+    return 0;
+  }
+  if (durationMs < 0) durationMs = 0;
+  if (!UHF_CalibrationApply(&g_calibration)) {
+    return 0;
+  }
+  if (!UHF_ClearBuffer()) {
+    set_last_error("ClearBuffer failed", UHF_ERR_VENDOR_CALL_FAILED);
+    return 0;
+  }
+  if (!UHF_StartRead()) {
+    set_last_error("StartRead failed", UHF_ERR_VENDOR_CALL_FAILED);
+    return 0;
+  }
+  sleep_ms(durationMs);
+  UHF_StopRead();
+  return UHF_PopBufferDedupFiltered(outTags, maxTags, outCount);
 }
 
 static int parse_pwd_hex(const char* pwdHex, uint8_t* out4) {

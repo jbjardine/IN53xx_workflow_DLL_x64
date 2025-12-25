@@ -73,6 +73,10 @@ UhfWrapperCli.exe --friendly read-once
 UhfWrapperCli.exe --friendly read-stream --duration 2000
 UhfWrapperCli.exe --friendly calib-prepare
 UhfWrapperCli.exe --friendly calib-run --calib-max 10 --apply
+UhfWrapperCli.exe --friendly calib-save C:\\temp\\uhf_calib.txt
+UhfWrapperCli.exe --friendly calib-load C:\\temp\\uhf_calib.txt --apply
+UhfWrapperCli.exe --friendly read-once-calib
+UhfWrapperCli.exe --friendly read-stream-calib --duration 2000
 UhfWrapperCli.exe --friendly rssi-filter --rssi-min -65 --rssi-max -40
 
 # Select a tag and write EPC (multi‑tag safe)
@@ -117,6 +121,12 @@ UHF_CalibrationTagPrepare(nullptr, 0, calibEpc, sizeof(calibEpc));
 UHF_CalibrateByTag(calibEpc, 5, 30, 1, 5, 3, 8000, 3, 1, &res);
 ```
 
+Calibrated reads (use saved profile):
+```c
+UHF_ReadOnceCalibrated(300, tags, 256, &count);
+UHF_ReadStreamCalibrated(5000, tags, 256, &count);
+```
+
 ## API Highlights
 
 - **Connection**: `UHF_Init`, `UHF_Open`, `UHF_Close`, `UHF_IsOpen`, `UHF_IsConnected`
@@ -128,6 +138,8 @@ UHF_CalibrateByTag(calibEpc, 5, 30, 1, 5, 3, 8000, 3, 1, &res);
 - **Read once (custom)**: `UHF_ReadOnce`
 - **RSSI filter**: `UHF_RssiFilterSet`, `UHF_RssiFilterReset`
 - **Calibration**: `UHF_CalibrationTagPrepare`, `UHF_CalibrateByTag`
+- **Calibration persistence**: `UHF_CalibrationSave`, `UHF_CalibrationLoad`
+- **Calibrated reads**: `UHF_ReadOnceCalibrated`, `UHF_ReadStreamCalibrated`
 - **Power/Frequency**: `UHF_GetPowerDbm/Pct`, `UHF_SetPowerDbm/Pct`, `UHF_GetFreq`, `UHF_SetFreq`
 - **Whitelist**: `UHF_WhitelistCount`, `UHF_WhitelistGetRaw/Hex`, `UHF_WhitelistAddEpc`,
   `UHF_WhitelistRemoveEpc`, `UHF_WhitelistClear`

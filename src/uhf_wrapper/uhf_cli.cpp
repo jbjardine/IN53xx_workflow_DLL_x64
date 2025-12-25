@@ -97,8 +97,10 @@ static void usage() {
   printf("  pop-all-safe\n");
   printf("  pop-dedup-safe\n");
   printf("  read-once\n");
+  printf("  read-once-calib   (read-once using saved calibration)\n");
   printf("  read-count <n>\n");
   printf("  read-stream\n");
+  printf("  read-stream-calib (buffered stream using saved calibration)\n");
   printf("  buffer-test        (start read, wait, pop+clear, stop)\n");
   printf("  power-get\n");
   printf("  power-set <dbm>\n");
@@ -118,6 +120,8 @@ static void usage() {
   printf("  freq-set-region <EU|US|JP|CN|KR|AU|NZ|IN|SG|HK|TW|CA|MX|BR|IL|ZA|TH|MY>\n");
   printf("  select-epc <epcHex>\n");
   printf("  select-clear\n");
+  printf("  calib-save <path>\n");
+  printf("  calib-load <path>  (--apply to set power + RSSI filter)\n");
   printf("  read <bank> <wordPtr> <wordCount> <pwdHex>\n");
   printf("  write <bank> <wordPtr> <hexData> <pwdHex>\n");
   printf("  write-epc <epcHex> <pwdHex>\n");
@@ -611,8 +615,9 @@ int main(int argc, char** argv) {
   } else if (strcmp(cmd, "info") == 0 || strcmp(cmd, "start") == 0 ||
              strcmp(cmd, "stop") == 0 || strcmp(cmd, "buffer-clear") == 0 ||
              strncmp(cmd, "peek", 4) == 0 || strncmp(cmd, "pop", 3) == 0 ||
-             strcmp(cmd, "read-once") == 0 || strcmp(cmd, "read-count") == 0 ||
-             strcmp(cmd, "read-stream") == 0 || strcmp(cmd, "buffer-test") == 0 ||
+             strcmp(cmd, "read-once") == 0 || strcmp(cmd, "read-once-calib") == 0 ||
+             strcmp(cmd, "read-count") == 0 || strcmp(cmd, "read-stream") == 0 ||
+             strcmp(cmd, "read-stream-calib") == 0 || strcmp(cmd, "buffer-test") == 0 ||
              strcmp(cmd, "power-get") == 0 || strcmp(cmd, "power-set") == 0 ||
              strcmp(cmd, "power-get-pct") == 0 || strcmp(cmd, "power-set-pct") == 0 ||
              strcmp(cmd, "power-set-preset") == 0 ||
@@ -742,6 +747,34 @@ int main(int argc, char** argv) {
       }
       if (printed == 0) exit_code = 2;
     }
+  } else if (strcmp(cmd, "read-once-calib") == 0) {
+    UHF_Tag tags[256];
+    int count = 0;
+    int ok = UHF_ReadOnceCalibrated(opt.timeout_ms, tags, 256, &count);
+    if (!ok) {
+      if (opt.friendly) {
+        print_friendly_ok("Read once (calib)", 0);
+        printf("Error: %s\n", UHF_GetLastError());
+      } else {
+        printf("ReadOnceCalibrated failed: %s\n", UHF_GetLastError());
+      }
+      exit_code = 1;
+    } else {
+      int printed = 0;
+      int csv_header_done = 0;
+      for (int i = 0; i < count; ++i) {
+        if (!tag_matches(&tags[i], opt)) continue;
+        print_tag(&tags[i], opt, &csv_header_done);
+        ++printed;
+      }
+      if (opt.friendly && opt.out == OUT_TEXT) {
+        int ok_msg = (printed == 0) ? 1 : ok;
+        print_friendly_ok("Read once (calib)", ok_msg);
+        print_friendly_int("Tags read", printed);
+        if (printed == 0) printf("No tags found.\n");
+      }
+      if (printed == 0) exit_code = 2;
+    }
   } else if (strcmp(cmd, "read-count") == 0) {
     if (argi >= argc) {
       printf("Missing count\n");
@@ -825,6 +858,34 @@ int main(int argc, char** argv) {
       if (opt.friendly && opt.out == OUT_TEXT) {
         printf("Streaming ended.\n");
       }
+    }
+  } else if (strcmp(cmd, "read-stream-calib") == 0) {
+    int dur = opt.duration_ms > 0 ? opt.duration_ms : 10000;
+    UHF_Tag tags[512];
+    int count = 0;
+    int ok = UHF_ReadStreamCalibrated(dur, tags, 512, &count);
+    if (!ok) {
+      if (opt.friendly) {
+        print_friendly_ok("Read stream (calib)", 0);
+        printf("Error: %s\n", UHF_GetLastError());
+      } else {
+        printf("ReadStreamCalibrated failed: %s\n", UHF_GetLastError());
+      }
+      exit_code = 1;
+    } else {
+      int csv_header_done = 0;
+      int printed = 0;
+      for (int i = 0; i < count; ++i) {
+        if (!tag_matches(&tags[i], opt)) continue;
+        print_tag(&tags[i], opt, &csv_header_done);
+        ++printed;
+      }
+      if (opt.friendly && opt.out == OUT_TEXT) {
+        print_friendly_ok("Read stream (calib)", 1);
+        print_friendly_int("Tags read", printed);
+        if (printed == 0) printf("No tags found.\n");
+      }
+      if (printed == 0) exit_code = 2;
     }
   } else if (strcmp(cmd, "buffer-test") == 0) {
     int ok = UHF_StartRead();
@@ -1197,6 +1258,51 @@ write_done:
     } else {
       printf("Error: %s\n", UHF_GetLastError());
       exit_code = 1;
+    }
+  } else if (strcmp(cmd, "calib-save") == 0) {
+    if (argi >= argc) {
+      printf("Missing path\n");
+      exit_code = 1;
+    } else {
+      const char* path = argv[argi++];
+      int ok = UHF_CalibrationSave(path);
+      if (opt.friendly) {
+        print_friendly_ok("Calibration save", ok);
+        if (!ok) printf("Error: %s\n", UHF_GetLastError());
+      } else {
+        printf("Calibration save: %s\n", ok ? "OK" : "FAILED");
+        if (!ok) printf("Error: %s\n", UHF_GetLastError());
+      }
+      if (!ok) exit_code = 1;
+    }
+  } else if (strcmp(cmd, "calib-load") == 0) {
+    if (argi >= argc) {
+      printf("Missing path\n");
+      exit_code = 1;
+    } else {
+      const char* path = argv[argi++];
+      UHF_CalibrationResult res{};
+      if (opt.calib_apply && !UHF_IsOpen()) {
+        if (!UHF_Open((unsigned short)opt.index)) {
+          printf("Open failed: %s\n", UHF_GetLastError());
+          UHF_Shutdown();
+          return 1;
+        }
+      }
+      int ok = UHF_CalibrationLoad(path, opt.calib_apply, &res);
+      if (opt.friendly) {
+        print_friendly_ok("Calibration load", ok);
+      } else {
+        printf("Calibration load: %s\n", ok ? "OK" : "FAILED");
+      }
+      if (ok) {
+        printf("Recommended power: %d dBm\n", res.recommendedPowerDbm);
+        printf("RSSI filter: %d .. %d dBm\n", res.rssiFilterMinDbm, res.rssiFilterMaxDbm);
+        if (opt.calib_apply) printf("Applied: power + RSSI filter\n");
+      } else {
+        printf("Error: %s\n", UHF_GetLastError());
+        exit_code = 1;
+      }
     }
   } else if (strcmp(cmd, "rssi-filter") == 0) {
     int ok = 0;

@@ -238,6 +238,26 @@ namespace UhfWrapper
                                                     int captureMs, int rssiMarginDbm,
                                                     int applySettings, out UHF_CalibrationResult result);
 
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_CalibrationApply(ref UHF_CalibrationResult result);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_CalibrationGetCurrent(out UHF_CalibrationResult result);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
+        public static extern int UHF_CalibrationSave(string path);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
+        public static extern int UHF_CalibrationLoad(string path, int applySettings, out UHF_CalibrationResult result);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_ReadOnceCalibrated(int timeoutMs, [Out] UHF_Tag[] outTags,
+                                                        int maxTags, out int outCount);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_ReadStreamCalibrated(int durationMs, [Out] UHF_Tag[] outTags,
+                                                          int maxTags, out int outCount);
+
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall, CharSet = CharSet.Ansi)]
         public static extern int UHF_LockTag(byte lockType, byte lockMem, string pwdHex);
 

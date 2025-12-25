@@ -55,6 +55,12 @@ EXPORTS
   UHF_ClearSelect
   UHF_CalibrationTagPrepare
   UHF_CalibrateByTag
+  UHF_CalibrationApply
+  UHF_CalibrationGetCurrent
+  UHF_CalibrationSave
+  UHF_CalibrationLoad
+  UHF_ReadOnceCalibrated
+  UHF_ReadStreamCalibrated
   UHF_LockTag
   UHF_WhitelistCount
   UHF_WhitelistGetRaw

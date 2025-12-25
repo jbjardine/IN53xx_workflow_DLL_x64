@@ -76,6 +76,7 @@ typedef struct UHF_CalibrationResult {
 #define UHF_ERR_NOT_READING -12
 #define UHF_ERR_NO_TAG -13
 #define UHF_ERR_CALIBRATION_FAILED -14
+#define UHF_ERR_CALIBRATION_MISSING -15
 
 #if defined(_MSC_VER)
   #pragma pack(pop)
@@ -157,6 +158,12 @@ UHF_API int UHF_CALL UHF_CalibrateByTag(const char* targetEpcHex,
                                         int readsPerStep, int powerMarginDbm,
                                         int captureMs, int rssiMarginDbm,
                                         int applySettings, UHF_CalibrationResult* outResult);
+UHF_API int UHF_CALL UHF_CalibrationApply(const UHF_CalibrationResult* res);
+UHF_API int UHF_CALL UHF_CalibrationGetCurrent(UHF_CalibrationResult* outResult);
+UHF_API int UHF_CALL UHF_CalibrationSave(const char* path);
+UHF_API int UHF_CALL UHF_CalibrationLoad(const char* path, int applySettings, UHF_CalibrationResult* outResult);
+UHF_API int UHF_CALL UHF_ReadOnceCalibrated(int timeoutMs, UHF_Tag* outTags, int maxTags, int* outCount);
+UHF_API int UHF_CALL UHF_ReadStreamCalibrated(int durationMs, UHF_Tag* outTags, int maxTags, int* outCount);
 
 // NOTE: lockType/lockMem are combined into a single lockCfg byte when possible.
 UHF_API int UHF_CALL UHF_LockTag(uint8_t lockType, uint8_t lockMem, const char* pwdHex);
