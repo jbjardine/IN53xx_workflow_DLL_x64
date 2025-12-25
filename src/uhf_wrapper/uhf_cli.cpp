@@ -120,6 +120,8 @@ static void usage() {
   printf("  freq-set-region <EU|US|JP|CN|KR|AU|NZ|IN|SG|HK|TW|CA|MX|BR|IL|ZA|TH|MY>\n");
   printf("  select-epc <epcHex>\n");
   printf("  select-clear\n");
+  printf("  workmode-get\n");
+  printf("  workmode-set <answer|active|trigger|0|1|2>\n");
   printf("  calib-save <path>\n");
   printf("  calib-load <path>  (--apply to set power + RSSI filter)\n");
   printf("  read <bank> <wordPtr> <wordCount> <pwdHex>\n");
@@ -628,6 +630,7 @@ int main(int argc, char** argv) {
              strcmp(cmd, "freq-get") == 0 || strcmp(cmd, "freq-set") == 0 ||
              strcmp(cmd, "freq-set-region") == 0 ||
              strcmp(cmd, "select-epc") == 0 || strcmp(cmd, "select-clear") == 0 ||
+             strcmp(cmd, "workmode-get") == 0 || strcmp(cmd, "workmode-set") == 0 ||
              strcmp(cmd, "read") == 0 || strcmp(cmd, "write") == 0 ||
              strcmp(cmd, "write-epc") == 0 || strcmp(cmd, "calib-prepare") == 0 ||
              strcmp(cmd, "calib-run") == 0 || strcmp(cmd, "rssi-filter") == 0 ||
@@ -1125,6 +1128,45 @@ int main(int argc, char** argv) {
     if (!ok) {
       printf("Error: %s\n", UHF_GetLastError());
       exit_code = 1;
+    }
+  } else if (strcmp(cmd, "workmode-get") == 0) {
+    int mode = UHF_GetWorkMode();
+    if (opt.friendly) {
+      const char* name = mode == 0 ? "Answer" : (mode == 1 ? "Active" : (mode == 2 ? "Trigger" : "Unknown"));
+      printf("WorkMode: %s (%d)\n", name, mode);
+    } else {
+      printf("WorkMode=%d\n", mode);
+    }
+    if (mode < 0) {
+      printf("Error: %s\n", UHF_GetLastError());
+      exit_code = 1;
+    }
+  } else if (strcmp(cmd, "workmode-set") == 0) {
+    if (argi >= argc) {
+      printf("Missing mode\n");
+      exit_code = 1;
+    } else {
+      const char* arg = argv[argi++];
+      int mode = -1;
+      if (strcmp(arg, "answer") == 0) mode = 0;
+      else if (strcmp(arg, "active") == 0) mode = 1;
+      else if (strcmp(arg, "trigger") == 0) mode = 2;
+      else mode = atoi(arg);
+      int ok = 0;
+      if (mode == 0) ok = UHF_SetWorkModeAnswer();
+      else if (mode == 1) ok = UHF_SetWorkModeActive();
+      else if (mode == 2) ok = UHF_SetWorkModeTrigger();
+      else {
+        printf("Invalid mode (use answer|active|trigger or 0/1/2)\n");
+        exit_code = 1;
+        ok = 0;
+      }
+      if (ok) {
+        printf("WorkMode set: %d\n", mode);
+      } else if (mode >= 0 && mode <= 2) {
+        printf("Error: %s\n", UHF_GetLastError());
+        exit_code = 1;
+      }
     }
   } else if (strcmp(cmd, "read") == 0) {
     if (argi + 4 > argc) {

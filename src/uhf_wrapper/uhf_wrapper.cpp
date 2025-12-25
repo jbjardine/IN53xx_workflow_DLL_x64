@@ -597,6 +597,24 @@ static int write_epc_raw(const char* epcHex, const char* pwdHex,
   return 1;
 }
 
+static int extract_single_epc(const UHF_Tag* tags, int count, char* out_hex, int out_len) {
+  if (!out_hex || out_len <= 0) return 0;
+  if (!tags || count <= 0) return 0;
+  const char* base = tags[0].epc;
+  for (int i = 1; i < count; ++i) {
+    if (!epc_hex_equal(tags[i].epc, base)) {
+      return -1;
+    }
+  }
+#if defined(_MSC_VER)
+  strncpy_s(out_hex, out_len, base, _TRUNCATE);
+#else
+  strncpy(out_hex, base, static_cast<size_t>(out_len - 1));
+  out_hex[out_len - 1] = '\0';
+#endif
+  return 1;
+}
+
 template <typename T>
 static T load_fn(const char* name) {
   if (!ensure_vendor_loaded()) {
@@ -1216,7 +1234,11 @@ UHF_API int UHF_CALL UHF_SetPowerDbm(int dbm) {
     set_last_error("dbm out of range (0..26)", UHF_ERR_INVALID_ARG);
     return 0;
   }
-  return fn(0xFF, 0x05, static_cast<uint8_t>(dbm)) ? 1 : 0;
+  if (!fn(0xFF, 0x05, static_cast<uint8_t>(dbm))) {
+    set_last_error("SWHid_SetDeviceOneParam failed", UHF_ERR_VENDOR_CALL_FAILED);
+    return 0;
+  }
+  return 1;
 }
 
 UHF_API int UHF_CALL UHF_GetPowerPct(void) {
@@ -1558,6 +1580,9 @@ UHF_API int UHF_CALL UHF_CalibrationTagPrepare(const char* desiredEpcHex, int wr
     set_last_error("Invalid output buffer", UHF_ERR_INVALID_ARG);
     return 0;
   }
+  // Ensure firmware is not left streaming from a previous session.
+  stop_read_vendor(0);
+  g_is_reading = 0;
   char epcHex[UHF_MAX_EPC_HEX + 1] = {0};
   if (writeNew) {
     UHF_Tag tags[4];
@@ -1571,8 +1596,11 @@ UHF_API int UHF_CALL UHF_CalibrationTagPrepare(const char* desiredEpcHex, int wr
       return 0;
     }
     if (count > 1) {
-      set_last_error("Multiple tags detected; remove extras", UHF_ERR_MULTI_TAG);
-      return 0;
+      int one = extract_single_epc(tags, count, epcHex, sizeof(epcHex));
+      if (one < 0) {
+        set_last_error("Multiple tags detected; remove extras", UHF_ERR_MULTI_TAG);
+        return 0;
+      }
     }
     if (desiredEpcHex && desiredEpcHex[0]) {
       uint8_t tmp[UHF_MAX_EPC_BYTES] = {0};
@@ -1615,15 +1643,19 @@ UHF_API int UHF_CALL UHF_CalibrationTagPrepare(const char* desiredEpcHex, int wr
       return 0;
     }
     if (count > 1) {
-      set_last_error("Multiple tags detected; remove extras or write new EPC", UHF_ERR_MULTI_TAG);
-      return 0;
-    }
+      int one = extract_single_epc(tags, count, epcHex, sizeof(epcHex));
+      if (one < 0) {
+        set_last_error("Multiple tags detected; remove extras or write new EPC", UHF_ERR_MULTI_TAG);
+        return 0;
+      }
+    } else {
 #if defined(_MSC_VER)
-    strncpy_s(epcHex, tags[0].epc, sizeof(epcHex) - 1);
+      strncpy_s(epcHex, tags[0].epc, sizeof(epcHex) - 1);
 #else
-    strncpy(epcHex, tags[0].epc, sizeof(epcHex) - 1);
-    epcHex[sizeof(epcHex) - 1] = '\0';
+      strncpy(epcHex, tags[0].epc, sizeof(epcHex) - 1);
+      epcHex[sizeof(epcHex) - 1] = '\0';
 #endif
+    }
   }
   if (outEpcHex) {
     size_t len = strlen(epcHex);
@@ -1655,6 +1687,9 @@ UHF_API int UHF_CALL UHF_CalibrateByTag(const char* targetEpcHex,
     set_last_error("Reader is already streaming", UHF_ERR_ALREADY_READING);
     return 0;
   }
+  // Ensure firmware is not left streaming from a previous session.
+  stop_read_vendor(0);
+  g_is_reading = 0;
   if (powerStepDbm <= 0) {
     set_last_error("Invalid power step", UHF_ERR_INVALID_ARG);
     return 0;
@@ -1683,15 +1718,19 @@ UHF_API int UHF_CALL UHF_CalibrateByTag(const char* targetEpcHex,
       return 0;
     }
     if (count > 1) {
-      set_last_error("Multiple tags detected; provide target EPC", UHF_ERR_MULTI_TAG);
-      return 0;
-    }
+      int one = extract_single_epc(tags, count, targetHex, sizeof(targetHex));
+      if (one < 0) {
+        set_last_error("Multiple tags detected; provide target EPC", UHF_ERR_MULTI_TAG);
+        return 0;
+      }
+    } else {
 #if defined(_MSC_VER)
-    strncpy_s(targetHex, tags[0].epc, sizeof(targetHex) - 1);
+      strncpy_s(targetHex, tags[0].epc, sizeof(targetHex) - 1);
 #else
-    strncpy(targetHex, tags[0].epc, sizeof(targetHex) - 1);
-    targetHex[sizeof(targetHex) - 1] = '\0';
+      strncpy(targetHex, tags[0].epc, sizeof(targetHex) - 1);
+      targetHex[sizeof(targetHex) - 1] = '\0';
 #endif
+    }
   } else {
     uint8_t tmp[UHF_MAX_EPC_BYTES] = {0};
     int len = hex_to_bytes(targetEpcHex, tmp, sizeof(tmp));
@@ -1708,22 +1747,35 @@ UHF_API int UHF_CALL UHF_CalibrateByTag(const char* targetEpcHex,
   }
 
   int prevPower = UHF_GetPowerDbm();
-  int selected = 0;
-  if (targetHex[0]) {
-    if (!UHF_SelectEpc(targetHex)) {
-      set_last_error("Select EPC failed", UHF_ERR_VENDOR_CALL_FAILED);
-      return 0;
+  int selection_enabled = 0;
+  // NOTE: We intentionally avoid hardware mask selection during calibration.
+  // Some firmwares reject power changes while a mask is active. We filter
+  // by EPC in software during reads instead.
+
+  auto set_power_cal = [&](int value) -> int {
+    if (UHF_SetPowerDbm(value)) {
+      return 1;
     }
-    selected = 1;
-  }
+    if (selection_enabled) {
+      // Some firmwares refuse power changes while mask select is active.
+      UHF_ClearSelect();
+      selection_enabled = 0;
+      if (UHF_SetPowerDbm(value)) {
+        return 1;
+      }
+    }
+    char msg[128];
+    snprintf(msg, sizeof(msg), "SetPowerDbm failed during calibration (dbm=%d)", value);
+    set_last_error(msg, UHF_ERR_VENDOR_CALL_FAILED);
+    return 0;
+  };
 
   int minHits = readsPerStep / 2;
   if (minHits < 1) minHits = 1;
   int foundPower = -1;
   for (int p = powerMinDbm; p <= powerMaxDbm; p += powerStepDbm) {
-    if (!UHF_SetPowerDbm(p)) {
-      set_last_error("SetPowerDbm failed during calibration", UHF_ERR_VENDOR_CALL_FAILED);
-      if (selected) UHF_ClearSelect();
+    if (!set_power_cal(p)) {
+      if (selection_enabled) UHF_ClearSelect();
       if (prevPower >= 0) UHF_SetPowerDbm(prevPower);
       return 0;
     }
@@ -1749,7 +1801,7 @@ UHF_API int UHF_CALL UHF_CalibrateByTag(const char* targetEpcHex,
 
   if (foundPower < 0) {
     set_last_error("Calibration tag not detected in power range", UHF_ERR_CALIBRATION_FAILED);
-    if (selected) UHF_ClearSelect();
+    if (selection_enabled) UHF_ClearSelect();
     if (prevPower >= 0) UHF_SetPowerDbm(prevPower);
     return 0;
   }
@@ -1757,22 +1809,21 @@ UHF_API int UHF_CALL UHF_CalibrateByTag(const char* targetEpcHex,
   int recommendedPower = foundPower + powerMarginDbm;
   if (recommendedPower > powerMaxDbm) recommendedPower = powerMaxDbm;
   if (recommendedPower < powerMinDbm) recommendedPower = powerMinDbm;
-  if (!UHF_SetPowerDbm(recommendedPower)) {
-    set_last_error("SetPowerDbm failed", UHF_ERR_VENDOR_CALL_FAILED);
-    if (selected) UHF_ClearSelect();
+  if (!set_power_cal(recommendedPower)) {
+    if (selection_enabled) UHF_ClearSelect();
     if (prevPower >= 0) UHF_SetPowerDbm(prevPower);
     return 0;
   }
 
   if (!UHF_ClearBuffer()) {
     set_last_error("ClearBuffer failed", UHF_ERR_VENDOR_CALL_FAILED);
-    if (selected) UHF_ClearSelect();
+    if (selection_enabled) UHF_ClearSelect();
     if (prevPower >= 0) UHF_SetPowerDbm(prevPower);
     return 0;
   }
   if (!UHF_StartRead()) {
     set_last_error("StartRead failed", UHF_ERR_VENDOR_CALL_FAILED);
-    if (selected) UHF_ClearSelect();
+    if (selection_enabled) UHF_ClearSelect();
     if (prevPower >= 0) UHF_SetPowerDbm(prevPower);
     return 0;
   }
@@ -1783,7 +1834,7 @@ UHF_API int UHF_CALL UHF_CalibrateByTag(const char* targetEpcHex,
   int count = 0;
   if (!UHF_PopBufferAll(tags, 512, &count)) {
     set_last_error("PopBufferAll failed", UHF_ERR_VENDOR_CALL_FAILED);
-    if (selected) UHF_ClearSelect();
+    if (selection_enabled) UHF_ClearSelect();
     if (prevPower >= 0) UHF_SetPowerDbm(prevPower);
     return 0;
   }
@@ -1808,7 +1859,7 @@ UHF_API int UHF_CALL UHF_CalibrateByTag(const char* targetEpcHex,
   }
   if (sampleCount <= 0) {
     set_last_error("No RSSI samples captured", UHF_ERR_CALIBRATION_FAILED);
-    if (selected) UHF_ClearSelect();
+    if (selection_enabled) UHF_ClearSelect();
     if (prevPower >= 0) UHF_SetPowerDbm(prevPower);
     return 0;
   }
@@ -1822,7 +1873,7 @@ UHF_API int UHF_CALL UHF_CalibrateByTag(const char* targetEpcHex,
     UHF_SetPowerDbm(prevPower);
   }
 
-  if (selected) {
+  if (selection_enabled) {
     UHF_ClearSelect();
   }
 

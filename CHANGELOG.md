@@ -15,3 +15,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Update documentation references to include the new changelog and memory notes.
+- Calibration now uses software EPC filtering to avoid firmware blocking power changes.

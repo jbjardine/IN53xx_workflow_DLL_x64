@@ -120,6 +120,8 @@ Notes :
   (EPC fourni ou genere aleatoirement).
 - `UHF_CalibrateByTag` peut appliquer directement la puissance + filtre RSSI (`applySettings=1`)
   ou juste renvoyer les valeurs (`applySettings=0`).
+- Pendant la calibration, le filtrage EPC est fait **en software** (pas de mask hard),
+  pour eviter un blocage de `SetPowerDbm` sur certains firmwares.
 
 Lecture calibree (profil deja charge) :
 ```
@@ -133,6 +135,13 @@ UhfWrapperCli.exe --friendly calib-save C:\temp\uhf_calib.txt
 UhfWrapperCli.exe --friendly calib-load C:\temp\uhf_calib.txt --apply
 UhfWrapperCli.exe --friendly read-once-calib
 UhfWrapperCli.exe --friendly read-stream-calib --duration 2000
+```
+
+Debug WorkMode (CLI) :
+```
+UhfWrapperCli.exe --friendly workmode-get
+UhfWrapperCli.exe --friendly workmode-set answer
+UhfWrapperCli.exe --friendly workmode-set active
 ```
 
 Selection (cibler un tag) :

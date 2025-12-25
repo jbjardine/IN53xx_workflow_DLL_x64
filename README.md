@@ -120,6 +120,8 @@ UHF_CalibrationTagPrepare(nullptr, 0, calibEpc, sizeof(calibEpc));
 // Sweep power and capture RSSI, then apply settings
 UHF_CalibrateByTag(calibEpc, 5, 30, 1, 5, 3, 8000, 3, 1, &res);
 ```
+Note: calibration filters EPC in software (no hardware mask) to avoid
+`SetPowerDbm` being rejected by some firmwares while a mask is active.
 
 Calibrated reads (use saved profile):
 ```c
