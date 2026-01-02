@@ -39,6 +39,9 @@ If the SDK DLL is missing, copy it manually at runtime.
 - Tag buffer parsing follows the same layout used in the WinDev example.
 - Extra helpers: streaming + buffer pop/peek, whitelist management, relay/out controls,
   frequency helpers, and a raw `UHF_ModuleCommand` (when available).
+- Transport (interface) helpers: `UHF_GetTransport`, `UHF_SetTransport`,
+  `UHF_SetTransportUsb`, `UHF_EnsureUsbTransport` to switch the reader back to
+  USB/HID when it was left in another interface (RJ45/Weigand/etc).
 - Some vendor exports differ between x86/x64 (e.g. whitelist delete names). The wrapper
   handles both where possible. `UHF_ModuleCommand` is only available when the vendor
   DLL exports `SWHid_CommunicateWithModule`.

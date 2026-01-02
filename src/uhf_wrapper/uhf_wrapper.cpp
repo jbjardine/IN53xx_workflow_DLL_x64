@@ -20,12 +20,21 @@
 #include <random>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
-#if defined(_WIN32) && defined(_M_IX86)
-#define VENDOR_CALL __cdecl
+#if defined(_WIN32)
+  #if defined(_WIN64)
+    #define VENDOR_CALL
+  #else
+    #define VENDOR_CALL __cdecl
+  #endif
 #else
-#define VENDOR_CALL __stdcall
+  #define VENDOR_CALL
 #endif
+
+static int check_system_config_internal(char* outMsg, int outMsgLen, int keep_open);
+static int ensure_usb_config_ready(void);
+static void close_device_silent(void);
 
 namespace {
 #if defined(_WIN32)
@@ -51,6 +60,29 @@ static const uint8_t kParamWorkMode = 0x02;
 static const uint8_t kWorkModeAnswer = 0x00;
 static const uint8_t kWorkModeActive = 0x01;
 static const uint8_t kWorkModeTrigger = 0x02;
+// Device parameters (protocol doc V1.9): 01 Transport, 02 WorkMode.
+static const uint8_t kParamTransport = 0x01;
+static const uint8_t kTransportUsb = 0x00;
+static const uint8_t kTransportRs232 = 0x01;
+static const uint8_t kTransportRj45 = 0x02;
+static const uint8_t kTransportWifi = 0x03;
+static const uint8_t kTransportWeigand = 0x04;
+static const uint8_t kDeviceParamHeader = 0xC3;
+static const uint8_t kDeviceParamBlockLen = 32;
+
+static int device_param_index(uint8_t param_addr, const uint8_t* buf, int len) {
+  if (param_addr == 0) return 0;
+  int base = 0;
+  if (buf && len > 1 && buf[0] == kDeviceParamHeader && buf[1] == 0x55) {
+    base = 2; // Some firmwares prefix DevType (0xC3) + default switch (0x55).
+  } else if (buf && len > 0 && buf[0] == 0x55) {
+    base = 1; // Some firmwares include an initial 0x55 before bTransport.
+  }
+  int idx = base + static_cast<int>(param_addr) - 1;
+  if (idx < base) idx = base;
+  if (len > 0 && idx >= len) return -1;
+  return idx;
+}
 
 static const uint8_t kMaskSelectTemplate[] = {
   0x53, 0x57, 0x00, 0xCD, 0xFF, 0x2F, 0xC3, 0x55, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0xE2,
@@ -72,6 +104,7 @@ static const uint8_t kMaskSelectTemplate[] = {
 // Special param payload (without initial flag). See SDK NewVersionChange.txt.
 #pragma pack(push, 1)
 struct SpecialParamV2 {
+  uint8_t bInitialFlag;
   uint8_t bPassword;
   uint8_t arrPass[4];
   uint8_t bMask;
@@ -93,6 +126,10 @@ template <typename T>
 static T load_fn(const char* name);
 static int hex_to_bytes(const char* hex, uint8_t* out, int out_cap);
 static void bytes_to_hex(const uint8_t* data, int len, char* out, int out_cap);
+static void finalize_checksum(uint8_t* buf, int len);
+static int send_buffer(const uint8_t* buf, int len);
+static int parse_tag_buffer(const uint8_t* buf, int total_len, int dedup,
+                            UHF_Tag* out_tags, int max_tags, int* out_count);
 static int start_read_vendor(int set_error);
 static int stop_read_vendor(int set_error);
 static int ensure_work_mode(uint8_t mode, const char* mode_name);
@@ -144,6 +181,159 @@ static void sleep_ms(int ms) {
 #endif
 }
 
+#if defined(_WIN64)
+static const char* get_x86_helper_path() {
+  static std::string path;
+  static int inited = 0;
+  if (inited) return path.empty() ? nullptr : path.c_str();
+  inited = 1;
+  char buf[1024] = {0};
+  DWORD n = GetEnvironmentVariableA("UHF_X86_HELPER", buf, sizeof(buf));
+  if (n > 0 && n < sizeof(buf)) {
+    path = buf;
+  }
+  return path.empty() ? nullptr : path.c_str();
+}
+
+static int parse_json_string_field(const std::string& line, const char* key, std::string& out) {
+  std::string pat = std::string("\"") + key + "\":\"";
+  size_t pos = line.find(pat);
+  if (pos == std::string::npos) return 0;
+  pos += pat.size();
+  size_t end = line.find('\"', pos);
+  if (end == std::string::npos || end < pos) return 0;
+  out = line.substr(pos, end - pos);
+  return 1;
+}
+
+static int parse_json_int_field(const std::string& line, const char* key, int* out) {
+  if (!out) return 0;
+  std::string pat = std::string("\"") + key + "\":";
+  size_t pos = line.find(pat);
+  if (pos == std::string::npos) return 0;
+  pos += pat.size();
+  const char* start = line.c_str() + pos;
+  char* end = nullptr;
+  long val = strtol(start, &end, 10);
+  if (end == start) return 0;
+  *out = static_cast<int>(val);
+  return 1;
+}
+
+static int read_once_via_helper(int timeout_ms, UHF_Tag* out_tags, int max_tags, int* out_count) {
+  if (!out_count || !out_tags || max_tags <= 0) return 0;
+  *out_count = 0;
+  const char* helper = get_x86_helper_path();
+  if (!helper || !helper[0]) return 0;
+
+  std::string cmd = "\"";
+  cmd += helper;
+  cmd += "\" --json --timeout ";
+  cmd += std::to_string(timeout_ms);
+  cmd += " read-once";
+
+  SECURITY_ATTRIBUTES sa{};
+  sa.nLength = sizeof(sa);
+  sa.bInheritHandle = TRUE;
+  sa.lpSecurityDescriptor = nullptr;
+
+  HANDLE read_pipe = nullptr;
+  HANDLE write_pipe = nullptr;
+  if (!CreatePipe(&read_pipe, &write_pipe, &sa, 0)) {
+    set_last_error("Failed to create helper pipe", UHF_ERR_VENDOR_CALL_FAILED);
+    return 0;
+  }
+  SetHandleInformation(read_pipe, HANDLE_FLAG_INHERIT, 0);
+
+  STARTUPINFOA si{};
+  PROCESS_INFORMATION pi{};
+  si.cb = sizeof(si);
+  si.dwFlags = STARTF_USESTDHANDLES;
+  si.hStdOutput = write_pipe;
+  si.hStdError = write_pipe;
+  si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+
+  std::vector<char> cmd_buf(cmd.begin(), cmd.end());
+  cmd_buf.push_back('\0');
+
+  BOOL created = CreateProcessA(nullptr,
+                                cmd_buf.data(),
+                                nullptr,
+                                nullptr,
+                                TRUE,
+                                CREATE_NO_WINDOW,
+                                nullptr,
+                                nullptr,
+                                &si,
+                                &pi);
+  CloseHandle(write_pipe);
+  if (!created) {
+    CloseHandle(read_pipe);
+    set_last_error("Failed to launch x86 helper", UHF_ERR_VENDOR_CALL_FAILED);
+    return 0;
+  }
+
+  DWORD wait_ms = (timeout_ms > 0 ? static_cast<DWORD>(timeout_ms + 2000) : 2000);
+  WaitForSingleObject(pi.hProcess, wait_ms);
+
+  std::string output;
+  char buf[4096];
+  DWORD read = 0;
+  while (ReadFile(read_pipe, buf, sizeof(buf), &read, nullptr) && read > 0) {
+    output.append(buf, buf + read);
+  }
+
+  CloseHandle(read_pipe);
+  CloseHandle(pi.hThread);
+  CloseHandle(pi.hProcess);
+
+  int count = 0;
+  size_t start = 0;
+  while (start < output.size()) {
+    size_t end = output.find_first_of("\r\n", start);
+    if (end == std::string::npos) end = output.size();
+    std::string line = output.substr(start, end - start);
+    start = end + 1;
+    if (line.empty()) continue;
+    if (line.front() != '{') continue;
+    UHF_Tag tag{};
+    std::string epc;
+    if (!parse_json_string_field(line, "epc", epc)) continue;
+    int len = 0;
+    int rssi = 0;
+    int ant = 0;
+    int type = 0;
+    parse_json_int_field(line, "len", &len);
+    parse_json_int_field(line, "rssi", &rssi);
+    parse_json_int_field(line, "ant", &ant);
+    parse_json_int_field(line, "tagType", &type);
+
+    if (len <= 0) {
+      len = static_cast<int>(epc.size() / 2);
+    }
+
+    tag.epcLenBytes = static_cast<uint8_t>(len);
+    tag.rssiDbm = rssi;
+    tag.antenna = static_cast<uint8_t>(ant);
+    tag.tagType = static_cast<uint8_t>(type);
+    tag.hasTs = 0;
+#if defined(_MSC_VER)
+    strncpy_s(tag.epc, epc.c_str(), sizeof(tag.epc) - 1);
+#else
+    strncpy(tag.epc, epc.c_str(), sizeof(tag.epc) - 1);
+    tag.epc[sizeof(tag.epc) - 1] = '\0';
+#endif
+
+    if (count < max_tags) {
+      out_tags[count++] = tag;
+    }
+  }
+
+  *out_count = count;
+  return 1;
+}
+#endif
+
 static int start_read_vendor(int set_error) {
   using Fn = int (VENDOR_CALL*)(uint8_t);
   auto fn = load_fn<Fn>("SWHid_StartRead");
@@ -173,6 +363,9 @@ static int stop_read_vendor(int set_error) {
 }
 
 static int ensure_work_mode(uint8_t mode, const char* mode_name) {
+  if (!ensure_usb_config_ready()) {
+    return 0;
+  }
   using FnRead = int (VENDOR_CALL*)(uint8_t, uint8_t, uint8_t*);
   using FnSet = int (VENDOR_CALL*)(uint8_t, uint8_t, uint8_t);
   auto fn_set = load_fn<FnSet>("SWHid_SetDeviceOneParam");
@@ -193,7 +386,43 @@ static int ensure_work_mode(uint8_t mode, const char* mode_name) {
       }
     }
   }
+  // If direct read failed, try block read to detect current mode.
+  using FnReadBlock = int (VENDOR_CALL*)(uint8_t, uint8_t*, uint8_t*, uint8_t);
+  auto fn_read_block = load_fn<FnReadBlock>("SWHid_ReadDeviceParam");
+  if (fn_read_block) {
+    uint8_t buf[kDeviceParamBlockLen] = {};
+    uint8_t hdr = 0;
+    if (fn_read_block(0xFF, &hdr, buf, kDeviceParamBlockLen)) {
+      int idx = device_param_index(kParamWorkMode, buf, kDeviceParamBlockLen);
+      if (idx >= 0 && idx < kDeviceParamBlockLen) {
+        if (buf[idx] == mode) {
+          return 1;
+        }
+      }
+    }
+  }
   if (!fn_set(0xFF, kParamWorkMode, mode)) {
+    // Some firmware requires RF to be stopped before mode change.
+    stop_read_vendor(0);
+    if (fn_set(0xFF, kParamWorkMode, mode)) {
+      return 1;
+    }
+    // Fallback to full param block (needed when reader is not in USB mode).
+    using FnSetBlock = int (VENDOR_CALL*)(uint8_t, uint8_t, uint8_t*, uint8_t);
+    auto fn_set_block = load_fn<FnSetBlock>("SWHid_SetDeviceParam");
+    if (fn_read_block && fn_set_block) {
+      uint8_t buf[kDeviceParamBlockLen] = {};
+      uint8_t hdr = kDeviceParamHeader;
+      if (fn_read_block(0xFF, &hdr, buf, kDeviceParamBlockLen)) {
+        int idx = device_param_index(kParamWorkMode, buf, kDeviceParamBlockLen);
+        if (idx >= 0 && idx < kDeviceParamBlockLen) {
+          buf[idx] = mode;
+          if (fn_set_block(0xFF, hdr ? hdr : kDeviceParamHeader, buf, kDeviceParamBlockLen)) {
+            return 1;
+          }
+        }
+      }
+    }
     if (mode_name) {
       char msg[128];
       snprintf(msg, sizeof(msg), "Failed to set %s", mode_name);
@@ -203,6 +432,149 @@ static int ensure_work_mode(uint8_t mode, const char* mode_name) {
     }
     return 0;
   }
+  return 1;
+}
+
+static int read_device_param_block(uint8_t param_addr, uint8_t* out_val) {
+  if (!out_val) {
+    set_last_error("Invalid device param buffer", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  using FnReadBlock = int (VENDOR_CALL*)(uint8_t, uint8_t*, uint8_t*, uint8_t);
+  auto fn_read_block = load_fn<FnReadBlock>("SWHid_ReadDeviceParam");
+  if (!fn_read_block) {
+    return 0;
+  }
+  uint8_t buf[kDeviceParamBlockLen] = {};
+  uint8_t hdr = 0;
+  if (!fn_read_block(0xFF, &hdr, buf, kDeviceParamBlockLen)) {
+    return 0;
+  }
+  int idx = device_param_index(param_addr, buf, kDeviceParamBlockLen);
+  if (idx < 0 || idx >= kDeviceParamBlockLen) {
+    return 0;
+  }
+  *out_val = buf[idx];
+  set_last_error("", UHF_ERR_OK);
+  return 1;
+}
+
+static int write_device_param_block(uint8_t param_addr, uint8_t val) {
+  using FnReadBlock = int (VENDOR_CALL*)(uint8_t, uint8_t*, uint8_t*, uint8_t);
+  using FnSetBlock = int (VENDOR_CALL*)(uint8_t, uint8_t, uint8_t*, uint8_t);
+  auto fn_read_block = load_fn<FnReadBlock>("SWHid_ReadDeviceParam");
+  auto fn_set_block = load_fn<FnSetBlock>("SWHid_SetDeviceParam");
+  if (!fn_read_block || !fn_set_block) {
+    return 0;
+  }
+  uint8_t buf[kDeviceParamBlockLen] = {};
+  uint8_t hdr = kDeviceParamHeader;
+  if (!fn_read_block(0xFF, &hdr, buf, kDeviceParamBlockLen)) {
+    return 0;
+  }
+  int idx = device_param_index(param_addr, buf, kDeviceParamBlockLen);
+  if (idx < 0 || idx >= kDeviceParamBlockLen) {
+    return 0;
+  }
+  buf[idx] = val;
+  if (!fn_set_block(0xFF, hdr ? hdr : kDeviceParamHeader, buf, kDeviceParamBlockLen)) {
+    return 0;
+  }
+  set_last_error("", UHF_ERR_OK);
+  return 1;
+}
+
+static int read_transport_param(uint8_t* out_val) {
+  if (!out_val) {
+    set_last_error("Invalid transport buffer", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  using FnRead = int (VENDOR_CALL*)(uint8_t, uint8_t, uint8_t*);
+  auto fn_read = load_fn<FnRead>("SWHid_ReadDeviceOneParam");
+  if (!fn_read) {
+    set_last_error("Missing SWHid_ReadDeviceOneParam", UHF_ERR_VENDOR_MISSING);
+    return 0;
+  }
+  if (!fn_read(0xFF, kParamTransport, out_val)) {
+    // Fallback to full device param block (needed when reader is not in USB mode).
+    uint8_t tmp = 0;
+    if (read_device_param_block(kParamTransport, &tmp)) {
+      *out_val = tmp;
+      return 1;
+    }
+    set_last_error("SWHid_ReadDeviceOneParam failed", UHF_ERR_VENDOR_CALL_FAILED);
+    return 0;
+  }
+  return 1;
+}
+
+static int set_transport_param(uint8_t val) {
+  // Prefer full device param block to match vendor soft behavior (persists config).
+  if (write_device_param_block(kParamTransport, val)) {
+    return 1;
+  }
+  using FnSet = int (VENDOR_CALL*)(uint8_t, uint8_t, uint8_t);
+  auto fn_set = load_fn<FnSet>("SWHid_SetDeviceOneParam");
+  if (fn_set) {
+    if (fn_set(0xFF, kParamTransport, val)) {
+      set_last_error("", UHF_ERR_OK);
+      return 1;
+    }
+  }
+  uint8_t frame[9] = {0x53, 0x57, 0x00, 0x05, 0xFF, 0x24, kParamTransport, val, 0x00};
+  finalize_checksum(frame, static_cast<int>(sizeof(frame)));
+  if (send_buffer(frame, static_cast<int>(sizeof(frame)))) {
+    set_last_error("", UHF_ERR_OK);
+    return 1;
+  }
+  uint8_t hid_buf[11] = {0x00, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+  memcpy(hid_buf + 2, frame, sizeof(frame));
+  if (send_buffer(hid_buf, static_cast<int>(sizeof(hid_buf)))) {
+    set_last_error("", UHF_ERR_OK);
+    return 1;
+  }
+  set_last_error("Failed to set transport", UHF_ERR_VENDOR_CALL_FAILED);
+  return 0;
+}
+
+static int ensure_transport_usb_opened(int allow_fix) {
+  uint8_t transport = 0xFF;
+  int read_ok = read_transport_param(&transport);
+  if (read_ok) {
+    if (transport == kTransportUsb) {
+      set_last_error("", UHF_ERR_OK);
+      return 1;
+    }
+    if (!allow_fix) {
+      char msg[128];
+      snprintf(msg, sizeof(msg), "Transport is not USB (value %u)", transport);
+      set_last_error(msg, UHF_ERR_VERIFY_FAILED);
+      return 0;
+    }
+  } else if (!allow_fix) {
+    return 0;
+  } else {
+    // Transport read not supported; assume USB and continue.
+    set_last_error("", UHF_ERR_OK);
+    return 1;
+  }
+
+  if (!set_transport_param(kTransportUsb)) {
+    set_last_error("Failed to set transport to USB", UHF_ERR_VENDOR_CALL_FAILED);
+    return 0;
+  }
+
+  transport = 0xFF;
+  if (read_transport_param(&transport)) {
+    if (transport != kTransportUsb) {
+      char msg[128];
+      snprintf(msg, sizeof(msg),
+               "Transport set to USB but readback is %u", transport);
+      set_last_error(msg, UHF_ERR_VERIFY_FAILED);
+      return 0;
+    }
+  }
+  set_last_error("", UHF_ERR_OK);
   return 1;
 }
 
@@ -248,8 +620,110 @@ static int send_buffer(const uint8_t* buf, int len) {
   return fn(0xFF, const_cast<uint8_t*>(buf), static_cast<uint16_t>(len)) ? 1 : 0;
 }
 
+
+static int inventory_g2_raw(uint8_t* buf, int buf_len, int* out_len, int* out_count) {
+  using Fn = uint8_t (VENDOR_CALL*)(uint8_t, uint8_t*, uint16_t*, uint16_t*);
+  auto fn = load_fn<Fn>("SWHid_InventoryG2");
+  if (!fn) {
+    set_last_error("Missing SWHid_InventoryG2", UHF_ERR_VENDOR_MISSING);
+    return 0;
+  }
+  if (!buf || buf_len <= 0 || !out_len || !out_count) {
+    set_last_error("Invalid inventory buffer", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  uint16_t total_len = 0;
+  uint16_t card_num = 0;
+  uint8_t ok = fn(0xFF, buf, &total_len, &card_num);
+  *out_len = static_cast<int>(total_len);
+  *out_count = static_cast<int>(card_num);
+  if (ok != 0) {
+    return 1;
+  }
+  if (!UHF_IsReaderPresent()) {
+    set_last_error("Reader not present", UHF_ERR_NO_DEVICE);
+    return 0;
+  }
+  return 1;
+}
+
+static int inventory_g2_once_no_mode(int timeout_ms, UHF_Tag* out_tags, int max_tags, int* out_count);
+
+static int inventory_g2_once(int timeout_ms, UHF_Tag* out_tags, int max_tags, int* out_count) {
+  if (!out_tags || max_tags <= 0 || !out_count) return 0;
+  *out_count = 0;
+  if (!ensure_work_mode(kWorkModeAnswer, "AnswerMode")) {
+    // Some vendor builds don't expose WorkMode via OneParam; still try inventory.
+    int ok = inventory_g2_once_no_mode(timeout_ms, out_tags, max_tags, out_count);
+    if (ok) {
+      set_last_error("", UHF_ERR_OK);
+    }
+    return ok;
+  }
+  if (timeout_ms < 0) timeout_ms = 0;
+  const int interval_ms = 50;
+  int64_t start = now_ms();
+  uint8_t buf[65536];
+  for (;;) {
+    int total_len = 0;
+    int tag_num = 0;
+    if (!inventory_g2_raw(buf, sizeof(buf), &total_len, &tag_num)) {
+      return 0;
+    }
+    if (total_len > 0) {
+      if (!parse_tag_buffer(buf, total_len, 1, out_tags, max_tags, out_count)) {
+        return 0;
+      }
+      if (*out_count > 0) {
+        return 1;
+      }
+    }
+    if (timeout_ms == 0) {
+      break;
+    }
+    if ((now_ms() - start) >= timeout_ms) {
+      break;
+    }
+    sleep_ms(interval_ms);
+  }
+  return 1;
+}
+
+static int inventory_g2_once_no_mode(int timeout_ms, UHF_Tag* out_tags, int max_tags, int* out_count) {
+  if (!out_tags || max_tags <= 0 || !out_count) return 0;
+  *out_count = 0;
+  if (timeout_ms < 0) timeout_ms = 0;
+  const int interval_ms = 50;
+  int64_t start = now_ms();
+  uint8_t buf[65536];
+  for (;;) {
+    int total_len = 0;
+    int tag_num = 0;
+    if (!inventory_g2_raw(buf, sizeof(buf), &total_len, &tag_num)) {
+      return 0;
+    }
+    if (total_len > 0) {
+      if (!parse_tag_buffer(buf, total_len, 1, out_tags, max_tags, out_count)) {
+        return 0;
+      }
+      if (*out_count > 0) {
+        return 1;
+      }
+    }
+    if (timeout_ms == 0) {
+      break;
+    }
+    if ((now_ms() - start) >= timeout_ms) {
+      break;
+    }
+    sleep_ms(interval_ms);
+  }
+  return 1;
+}
+
 static int read_special_param(uint8_t* out_buf, uint8_t out_len) {
   if (!out_buf || out_len == 0) return 0;
+  if (!ensure_usb_config_ready()) return 0;
 #if defined(_WIN64)
   using FnRead = int (VENDOR_CALL*)(void*, uint8_t*, uint8_t*, uint8_t);
   auto fn = load_fn<FnRead>("SWHid_ReadDeviceSpecialParam");
@@ -267,6 +741,7 @@ static int read_special_param(uint8_t* out_buf, uint8_t out_len) {
 
 static int write_special_param(const uint8_t* buf, uint8_t len) {
   if (!buf || len == 0) return 0;
+  if (!ensure_usb_config_ready()) return 0;
 #if defined(_WIN64)
   using FnSet = int (VENDOR_CALL*)(void*, uint8_t, const void*, uint8_t);
   auto fn = load_fn<FnSet>("SWHid_SetDeviceSpecialParam");
@@ -282,6 +757,9 @@ static int write_special_param(const uint8_t* buf, uint8_t len) {
 
 static int send_module_cmd(uint8_t cmd, const uint8_t* payload, int payload_len,
                            uint8_t* out_buf, int out_buf_len, int* out_resp_len) {
+  if (!ensure_usb_config_ready()) {
+    return 0;
+  }
   using Fn = int (VENDOR_CALL*)(uint8_t, uint8_t*, uint16_t, uint8_t*, uint16_t*);
   auto fn = load_fn<Fn>("SWHid_CommunicateWithModule");
   if (!fn) {
@@ -372,6 +850,7 @@ static int set_mask_special_param(const uint8_t* epc, int epc_len, int enable) {
   if (!read_special_param(reinterpret_cast<uint8_t*>(&p), static_cast<uint8_t>(sizeof(p)))) {
     memset(&p, 0, sizeof(p));
   }
+  p.bInitialFlag = 0x55;
   p.bPassword = 0x00;
   memset(p.arrPass, 0x00, sizeof(p.arrPass));
   p.bMask = enable ? 0x01 : 0x00;
@@ -397,12 +876,23 @@ static int set_mask_special_param(const uint8_t* epc, int epc_len, int enable) {
 static int count_tags_once(int timeout_ms, int* out_count) {
   if (!out_count) return 0;
   *out_count = 0;
-  if (!UHF_StartRead()) {
-    return 0;
+  int mode = UHF_GetWorkMode();
+  if (mode == kWorkModeAnswer || mode < 0) {
+    // Active-mode buffer clear can fail in AnswerMode; ignore.
+    (void)UHF_ClearBuffer();
+    UHF_Tag tmp[64];
+    int tmp_count = 0;
+    if (!inventory_g2_once(timeout_ms, tmp, 64, &tmp_count)) return 0;
+    *out_count = tmp_count;
+    return 1;
+  } else {
+    if (!UHF_StartRead()) {
+      return 0;
+    }
+    if (timeout_ms < 0) timeout_ms = 0;
+    sleep_ms(timeout_ms);
+    UHF_StopRead();
   }
-  if (timeout_ms < 0) timeout_ms = 0;
-  sleep_ms(timeout_ms);
-  UHF_StopRead();
   UHF_Tag tags[256];
   int count = 0;
   if (!UHF_PopBufferDedup(tags, 256, &count)) {
@@ -417,8 +907,11 @@ static int read_tags_once(int timeout_ms, UHF_Tag* out_tags, int max_tags, int* 
     return 0;
   }
   *out_count = 0;
-  if (!UHF_ClearBuffer()) {
-    return 0;
+  int mode = UHF_GetWorkMode();
+  // ClearTagBuf is for ActiveMode; in AnswerMode it may fail, ignore.
+  (void)UHF_ClearBuffer();
+  if (mode == kWorkModeAnswer || mode < 0) {
+    return inventory_g2_once(timeout_ms, out_tags, max_tags, out_count);
   }
   if (!UHF_StartRead()) {
     return 0;
@@ -615,6 +1108,131 @@ static int extract_single_epc(const UHF_Tag* tags, int count, char* out_hex, int
   return 1;
 }
 
+static int calibration_verify_unique_epc(const char* target_hex, int tid_reads) {
+  if (!target_hex || !target_hex[0]) return 1;
+  if (tid_reads <= 0) tid_reads = 1;
+  // If multiple EPCs are visible, accept and rely on software filtering.
+  {
+    UHF_Tag tags[16];
+    int count = 0;
+    if (read_tags_once(200, tags, 16, &count) && count > 1) {
+      set_last_error("", UHF_ERR_OK);
+      return 1;
+    }
+  }
+  uint8_t target_bytes[UHF_MAX_EPC_BYTES] = {0};
+  int target_len = hex_to_bytes(target_hex, target_bytes, sizeof(target_bytes));
+  if (target_len <= 0 || (target_len % 2) != 0) {
+    return 1;
+  }
+  if (!UHF_SelectEpc(target_hex)) {
+    // Can't verify uniqueness; proceed without blocking calibration.
+    set_last_error("", UHF_ERR_OK);
+    return 1;
+  }
+  // Verify the reader actually honors the select mask; if not, skip strict check.
+  {
+    UHF_Tag tags[16];
+    int count = 0;
+    if (read_tags_once(200, tags, 16, &count)) {
+      int only_target = 1;
+      for (int i = 0; i < count; ++i) {
+        if (!epc_hex_equal(tags[i].epc, target_hex)) {
+          only_target = 0;
+          break;
+        }
+      }
+      if (!only_target) {
+        set_last_error("", UHF_ERR_OK);
+        UHF_ClearSelect();
+        return 1;
+      }
+    }
+  }
+  // Verify ReadTag honors the select by reading EPC memory multiple times.
+  {
+    int word_count = target_len / 2;
+    if (word_count <= 0) {
+      set_last_error("", UHF_ERR_OK);
+      UHF_ClearSelect();
+      return 1;
+    }
+    for (int i = 0; i < 3; ++i) {
+      uint8_t epc_mem[UHF_MAX_EPC_BYTES] = {0};
+      int bytes_read = 0;
+      if (!UHF_ReadTag(1, 2, static_cast<uint8_t>(word_count), nullptr,
+                       epc_mem, sizeof(epc_mem), &bytes_read) ||
+          bytes_read < target_len ||
+          memcmp(epc_mem, target_bytes, static_cast<size_t>(target_len)) != 0) {
+        set_last_error("", UHF_ERR_OK);
+        UHF_ClearSelect();
+        return 1;
+      }
+    }
+  }
+  uint8_t tid_vals[3][32] = {{0}};
+  int tid_lens[3] = {0};
+  int tid_counts[3] = {0};
+  int tid_unique = 0;
+  for (int i = 0; i < tid_reads; ++i) {
+    uint8_t tid[32] = {0};
+    int bytes_read = 0;
+    if (!UHF_ReadTag(2, 0, 6, nullptr, tid, sizeof(tid), &bytes_read) || bytes_read <= 0) {
+      // TID not readable; skip strict duplicate detection.
+      set_last_error("", UHF_ERR_OK);
+      UHF_ClearSelect();
+      return 1;
+    }
+    if (bytes_read > static_cast<int>(sizeof(tid_vals[0]))) {
+      set_last_error("", UHF_ERR_OK);
+      UHF_ClearSelect();
+      return 1;
+    }
+    int matched = 0;
+    for (int j = 0; j < tid_unique; ++j) {
+      if (bytes_read == tid_lens[j] &&
+          memcmp(tid_vals[j], tid, static_cast<size_t>(bytes_read)) == 0) {
+        tid_counts[j]++;
+        matched = 1;
+        break;
+      }
+    }
+    if (!matched) {
+      if (tid_unique >= 3) {
+        // Too many variants; assume unreliable reads and skip.
+        set_last_error("", UHF_ERR_OK);
+        UHF_ClearSelect();
+        return 1;
+      }
+      memcpy(tid_vals[tid_unique], tid, static_cast<size_t>(bytes_read));
+      tid_lens[tid_unique] = bytes_read;
+      tid_counts[tid_unique] = 1;
+      tid_unique++;
+    }
+  }
+  for (int j = 0; j < tid_unique; ++j) {
+    if (tid_lens[j] <= 0) {
+      // Inconsistent TID length; skip strict duplicate detection.
+      set_last_error("", UHF_ERR_OK);
+      UHF_ClearSelect();
+      return 1;
+    }
+  }
+  int distinct_with_repeats = 0;
+  for (int j = 0; j < tid_unique; ++j) {
+    if (tid_counts[j] >= 2) {
+      distinct_with_repeats++;
+    }
+  }
+  if (distinct_with_repeats >= 2) {
+    set_last_error("Multiple tags share the calibration EPC (different TID)", UHF_ERR_MULTI_TAG);
+    UHF_ClearSelect();
+    return 0;
+  }
+  UHF_ClearSelect();
+  return 1;
+}
+
 template <typename T>
 static T load_fn(const char* name) {
   if (!ensure_vendor_loaded()) {
@@ -690,6 +1308,56 @@ static int parse_tag_buffer(const uint8_t* buf, int total_len, int dedup,
   if (!out_count) return 0;
   *out_count = 0;
   if (!buf || total_len <= 0 || !out_tags || max_tags <= 0) {
+    return 1;
+  }
+
+  // Answer-mode frames: "CT" + 16-bit length + payload (tags are cmd 0x45).
+  if (total_len >= 4 && buf[0] == 0x43 && buf[1] == 0x54) {
+    int offset = 0;
+    int count = 0;
+    while (offset + 4 <= total_len) {
+      if (buf[offset] != 0x43 || buf[offset + 1] != 0x54) {
+        offset += 1;
+        continue;
+      }
+      int payload_len = (static_cast<int>(buf[offset + 2]) << 8) |
+                        static_cast<int>(buf[offset + 3]);
+      if (payload_len <= 0 || offset + 4 + payload_len > total_len) {
+        break;
+      }
+      const uint8_t* payload = buf + offset + 4;
+      // Expect payload[1] == 0x45 for tag report frames.
+      if (payload_len >= 16 && payload[1] == 0x45) {
+        const int header_len = 14;
+        int epc_len = payload_len - header_len - 2; // exclude CRC
+        if (epc_len > 0 && epc_len <= UHF_MAX_EPC_BYTES) {
+          const uint8_t* epc_ptr = payload + header_len;
+          uint8_t rssi_raw = payload[4];
+          UHF_Tag tag{};
+          tag.epcLenBytes = static_cast<uint8_t>(epc_len);
+          bytes_to_hex(epc_ptr, epc_len, tag.epc, sizeof(tag.epc));
+          tag.rssiDbm = rssi_to_dbm(rssi_raw);
+          tag.antenna = payload[2];
+          tag.tagType = payload[0];
+          tag.hasTs = 0;
+
+          int is_dup = 0;
+          if (dedup) {
+            for (int i = 0; i < count; ++i) {
+              if (strncmp(out_tags[i].epc, tag.epc, sizeof(tag.epc)) == 0) {
+                is_dup = 1;
+                break;
+              }
+            }
+          }
+          if (!is_dup && count < max_tags) {
+            out_tags[count++] = tag;
+          }
+        }
+      }
+      offset += 4 + payload_len;
+    }
+    *out_count = count;
     return 1;
   }
 
@@ -872,6 +1540,9 @@ UHF_API int UHF_CALL UHF_IsConnected(void) {
 }
 
 UHF_API int UHF_CALL UHF_GetInfo(UHF_DeviceInfo* outInfo) {
+  if (!ensure_usb_config_ready()) {
+    return 0;
+  }
   using Fn = int (VENDOR_CALL*)(uint8_t, uint8_t*);
   auto fn = load_fn<Fn>("SWHid_GetDeviceSystemInfo");
   if (!fn) {
@@ -905,7 +1576,68 @@ UHF_API int UHF_CALL UHF_GetInfo(UHF_DeviceInfo* outInfo) {
   return 1;
 }
 
+UHF_API int UHF_CALL UHF_GetTransport(void) {
+  int usb_count = UHF_GetUsbCount();
+  if (usb_count <= 0) {
+    set_last_error("No USB device found", UHF_ERR_NO_DEVICE);
+    return -1;
+  }
+  if (!UHF_IsOpen()) {
+    if (!UHF_Open(0)) {
+      set_last_error("Open failed for transport read", UHF_ERR_VENDOR_CALL_FAILED);
+      return -1;
+    }
+  }
+  uint8_t transport = 0xFF;
+  if (!read_transport_param(&transport)) {
+    return -1;
+  }
+  return static_cast<int>(transport);
+}
+
+UHF_API int UHF_CALL UHF_SetTransport(uint8_t transport) {
+  int usb_count = UHF_GetUsbCount();
+  if (usb_count <= 0) {
+    set_last_error("No USB device found", UHF_ERR_NO_DEVICE);
+    return 0;
+  }
+  if (!UHF_IsOpen()) {
+    if (!UHF_Open(0)) {
+      set_last_error("Open failed for transport set", UHF_ERR_VENDOR_CALL_FAILED);
+      return 0;
+    }
+  }
+  if (!set_transport_param(transport)) {
+    return 0;
+  }
+  set_last_error("", UHF_ERR_OK);
+  return 1;
+}
+
+UHF_API int UHF_CALL UHF_SetTransportUsb(void) {
+  return UHF_SetTransport(kTransportUsb);
+}
+
+UHF_API int UHF_CALL UHF_EnsureUsbTransport(void) {
+  int already_open = UHF_IsOpen();
+  if (!already_open) {
+    int usb_count = UHF_GetUsbCount();
+    if (usb_count <= 0) {
+      set_last_error("No USB device found", UHF_ERR_NO_DEVICE);
+      return 0;
+    }
+    if (!UHF_Open(0)) {
+      set_last_error("Open failed for transport check", UHF_ERR_VENDOR_CALL_FAILED);
+      return 0;
+    }
+  }
+  return ensure_transport_usb_opened(1);
+}
+
 UHF_API int UHF_CALL UHF_GetWorkMode(void) {
+  if (!ensure_usb_config_ready()) {
+    return -1;
+  }
   using Fn = int (VENDOR_CALL*)(uint8_t, uint8_t, uint8_t*);
   auto fn = load_fn<Fn>("SWHid_ReadDeviceOneParam");
   if (!fn) {
@@ -918,6 +1650,10 @@ UHF_API int UHF_CALL UHF_GetWorkMode(void) {
     return -1;
   }
   return static_cast<int>(val);
+}
+
+UHF_API int UHF_CALL UHF_CheckSystemConfig(char* outMsg, int outMsgLen) {
+  return check_system_config_internal(outMsg, outMsgLen, 0);
 }
 
 UHF_API int UHF_CALL UHF_SetWorkModeAnswer(void) {
@@ -939,6 +1675,13 @@ UHF_API int UHF_CALL UHF_StartRead(void) {
     return 0;
   }
   if (!ensure_work_mode(kWorkModeActive, "ActiveMode")) {
+    // If workmode can't be set (device in special mode), still try to start.
+    int ok_fallback = start_read_vendor(0);
+    if (ok_fallback) {
+      g_is_reading = 1;
+      set_last_error("", UHF_ERR_OK);
+      return 1;
+    }
     return 0;
   }
   int ok = start_read_vendor(1);
@@ -957,6 +1700,9 @@ UHF_API int UHF_CALL UHF_StopRead(void) {
 }
 
 UHF_API int UHF_CALL UHF_ClearBuffer(void) {
+  if (!ensure_usb_config_ready()) {
+    return 0;
+  }
   using Fn = int (VENDOR_CALL*)();
   auto fn = load_fn<Fn>("SWHid_ClearTagBuf");
   if (!fn) {
@@ -964,11 +1710,11 @@ UHF_API int UHF_CALL UHF_ClearBuffer(void) {
     return 0;
   }
   int ok = fn() ? 1 : 0;
-  if (ok) {
-    std::lock_guard<std::mutex> lock(g_dedup_mutex);
-    dedup_cache_reset_locked();
-  }
-  return ok;
+  // Vendor DLL sometimes returns 0 even when buffer is cleared. Treat as best-effort.
+  std::lock_guard<std::mutex> lock(g_dedup_mutex);
+  dedup_cache_reset_locked();
+  set_last_error("", UHF_ERR_OK);
+  return 1;
 }
 
 static int get_tag_buf(uint8_t* buf, int buf_len, int* out_len, int* out_count) {
@@ -1023,7 +1769,7 @@ static int peek_or_pop(int dedup, int do_clear, int safe_cycle,
     return 0;
   }
 
-  if (total_len <= 0 || tag_num <= 0) {
+  if (total_len <= 0) {
     if (outCount) *outCount = 0;
     if (do_clear) {
       UHF_ClearBuffer();
@@ -1176,14 +1922,33 @@ UHF_API int UHF_CALL UHF_ReadOnce(int timeoutMs, UHF_Tag* outTags, int maxTags, 
     set_last_error("Invalid output buffer", UHF_ERR_INVALID_ARG);
     return 0;
   }
+#if defined(_WIN64)
+  if (read_once_via_helper(timeoutMs, outTags, maxTags, outCount)) {
+    set_last_error("", UHF_ERR_OK);
+    return 1;
+  }
+#endif
   if (timeoutMs < 0) timeoutMs = 0;
+  int mode = UHF_GetWorkMode();
+  if (mode == kWorkModeAnswer || mode < 0) {
+    int ok = inventory_g2_once(timeoutMs, outTags, maxTags, outCount);
+    if (ok && *outCount > 0) {
+      return 1;
+    }
+  }
   if (!UHF_ClearBuffer()) {
     set_last_error("ClearBuffer failed", UHF_ERR_VENDOR_CALL_FAILED);
     return 0;
   }
   if (!UHF_StartRead()) {
-    set_last_error("StartRead failed", UHF_ERR_VENDOR_CALL_FAILED);
-    return 0;
+    // Fallback to Answer-mode inventory when buffered read is not available.
+    set_last_error("", UHF_ERR_OK);
+    int ok = inventory_g2_once(timeoutMs, outTags, maxTags, outCount);
+    if (!ok) {
+      set_last_error("", UHF_ERR_OK);
+      return inventory_g2_once_no_mode(timeoutMs, outTags, maxTags, outCount);
+    }
+    return ok;
   }
   sleep_ms(timeoutMs);
   UHF_StopRead();
@@ -1209,6 +1974,9 @@ UHF_API int UHF_CALL UHF_RssiFilterReset(void) {
 }
 
 UHF_API int UHF_CALL UHF_GetPowerDbm(void) {
+  if (!ensure_usb_config_ready()) {
+    return -1;
+  }
   using Fn = int (VENDOR_CALL*)(uint8_t, uint8_t, uint8_t*);
   auto fn = load_fn<Fn>("SWHid_ReadDeviceOneParam");
   if (!fn) {
@@ -1224,6 +1992,9 @@ UHF_API int UHF_CALL UHF_GetPowerDbm(void) {
 }
 
 UHF_API int UHF_CALL UHF_SetPowerDbm(int dbm) {
+  if (!ensure_usb_config_ready()) {
+    return 0;
+  }
   using Fn = int (VENDOR_CALL*)(uint8_t, uint8_t, uint8_t);
   auto fn = load_fn<Fn>("SWHid_SetDeviceOneParam");
   if (!fn) {
@@ -1542,14 +2313,13 @@ UHF_API int UHF_CALL UHF_SelectEpc(const char* epcHex) {
     set_last_error("Select EPC requires 1..12 bytes (24 hex chars for 96-bit EPC)", UHF_ERR_INVALID_ARG);
     return 0;
   }
-  int sp_ok = set_mask_special_param(epc, epc_len, 1);
   uint8_t frame[sizeof(kMaskSelectTemplate)] = {0};
   if (!build_mask_frame(epc, epc_len, 1, frame, sizeof(frame))) {
     set_last_error("Failed to build mask frame", UHF_ERR_INVALID_ARG);
     return 0;
   }
   int frame_ok = send_buffer(frame, static_cast<int>(sizeof(frame)));
-  if (sp_ok || frame_ok) {
+  if (frame_ok) {
     return 1;
   }
   set_last_error("Mask select failed", UHF_ERR_VENDOR_CALL_FAILED);
@@ -1560,14 +2330,13 @@ UHF_API int UHF_CALL UHF_ClearSelect(void) {
   if (!ensure_work_mode(kWorkModeAnswer, "AnswerMode")) {
     return 0;
   }
-  int sp_ok = set_mask_special_param(nullptr, 0, 0);
   uint8_t frame[sizeof(kMaskSelectTemplate)] = {0};
   if (!build_mask_frame(nullptr, 0, 0, frame, sizeof(frame))) {
     set_last_error("Failed to build clear mask frame", UHF_ERR_INVALID_ARG);
     return 0;
   }
   int frame_ok = send_buffer(frame, static_cast<int>(sizeof(frame)));
-  if (sp_ok || frame_ok) {
+  if (frame_ok) {
     return 1;
   }
   set_last_error("Mask clear failed", UHF_ERR_VENDOR_CALL_FAILED);
@@ -1746,6 +2515,10 @@ UHF_API int UHF_CALL UHF_CalibrateByTag(const char* targetEpcHex,
 #endif
   }
 
+  if (!calibration_verify_unique_epc(targetHex, 5)) {
+    return 0;
+  }
+
   int prevPower = UHF_GetPowerDbm();
   int selection_enabled = 0;
   // NOTE: We intentionally avoid hardware mask selection during calibration.
@@ -1753,6 +2526,9 @@ UHF_API int UHF_CALL UHF_CalibrateByTag(const char* targetEpcHex,
   // by EPC in software during reads instead.
 
   auto set_power_cal = [&](int value) -> int {
+    if (!ensure_work_mode(kWorkModeAnswer, "AnswerMode")) {
+      return 0;
+    }
     if (UHF_SetPowerDbm(value)) {
       return 1;
     }
@@ -1770,20 +2546,35 @@ UHF_API int UHF_CALL UHF_CalibrateByTag(const char* targetEpcHex,
     return 0;
   };
 
-  int minHits = readsPerStep / 2;
+  int multi_env = 0;
+  {
+    UHF_Tag env_tags[16];
+    int env_count = 0;
+    if (set_power_cal(powerMaxDbm)) {
+      if (read_tags_once(200, env_tags, 16, &env_count) && env_count > 1) {
+        multi_env = 1;
+      }
+    }
+  }
+  int minHits = readsPerStep;
+  if (multi_env && readsPerStep >= 2) {
+    minHits = readsPerStep - 1;
+  }
   if (minHits < 1) minHits = 1;
   int foundPower = -1;
-  for (int p = powerMinDbm; p <= powerMaxDbm; p += powerStepDbm) {
+  const int per_read_ms = 300;
+  for (int p = powerMaxDbm; p >= powerMinDbm; p -= powerStepDbm) {
     if (!set_power_cal(p)) {
       if (selection_enabled) UHF_ClearSelect();
       if (prevPower >= 0) UHF_SetPowerDbm(prevPower);
       return 0;
     }
+    sleep_ms(50); // allow RF power to settle
     int hits = 0;
     for (int i = 0; i < readsPerStep; ++i) {
       UHF_Tag tags[32];
       int count = 0;
-      if (!read_tags_once(120, tags, 32, &count)) {
+      if (!read_tags_once(per_read_ms, tags, 32, &count)) {
         continue;
       }
       for (int t = 0; t < count; ++t) {
@@ -1795,6 +2586,10 @@ UHF_API int UHF_CALL UHF_CalibrateByTag(const char* targetEpcHex,
     }
     if (hits >= minHits) {
       foundPower = p;
+      // Keep going lower to find the minimum reliable power.
+      continue;
+    }
+    if (foundPower >= 0) {
       break;
     }
   }
@@ -2228,3 +3023,140 @@ UHF_API int UHF_CALL UHF_ModuleCommand(uint8_t cmd, const uint8_t* payload, int 
 }
 
 } // extern "C"
+
+static const char* transport_name(uint8_t val) {
+  switch (val) {
+    case kTransportUsb: return "USB/PC";
+    case kTransportRs232: return "RS232/RS485";
+    case kTransportRj45: return "RJ45";
+    case kTransportWifi: return "WIFI";
+    case kTransportWeigand: return "Weigand";
+    default: return "Unknown";
+  }
+}
+
+static const char* workmode_name(uint8_t val) {
+  switch (val) {
+    case kWorkModeAnswer: return "Answer";
+    case kWorkModeActive: return "Active";
+    case kWorkModeTrigger: return "Trigger";
+    default: return "Unknown";
+  }
+}
+
+static void close_device_silent(void) {
+  using Fn = int (VENDOR_CALL*)();
+  auto fn = load_fn<Fn>("SWHid_CloseDevice");
+  if (fn) {
+    (void)fn();
+  }
+  g_is_open = 0;
+  g_is_reading = 0;
+}
+
+static int check_system_config_internal(char* outMsg, int outMsgLen, int keep_open) {
+  if (!outMsg || outMsgLen <= 0) {
+    set_last_error("Invalid buffer", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  outMsg[0] = '\0';
+
+  int usb_count = 0;
+  int already_open = UHF_IsOpen();
+  if (!already_open) {
+    usb_count = UHF_GetUsbCount();
+    if (usb_count <= 0) {
+      snprintf(outMsg, outMsgLen, "USB devices: %d (none)", usb_count);
+      set_last_error("No USB device found", UHF_ERR_NO_DEVICE);
+      return 0;
+    }
+  } else {
+    usb_count = 1;
+  }
+
+  int opened_here = 0;
+  if (!already_open) {
+    if (!UHF_Open(0)) {
+      const char* err = UHF_GetLastError();
+      snprintf(outMsg,
+               outMsgLen,
+               "USB devices: %d; transport=unknown (open failed%s%s)",
+               usb_count,
+               (err && err[0]) ? ": " : "",
+               (err && err[0]) ? err : "");
+      set_last_error("Open failed for config check", UHF_ERR_VENDOR_CALL_FAILED);
+      return 0;
+    }
+    opened_here = 1;
+  }
+
+  using Fn = int (VENDOR_CALL*)(uint8_t, uint8_t, uint8_t*);
+  auto fn = load_fn<Fn>("SWHid_ReadDeviceOneParam");
+  if (!fn) {
+    snprintf(outMsg, outMsgLen, "USB devices: %d; transport=unknown (missing param reader)", usb_count);
+    if (opened_here) close_device_silent();
+    set_last_error("Missing SWHid_ReadDeviceOneParam", UHF_ERR_VENDOR_MISSING);
+    return 0;
+  }
+
+  uint8_t transport = 0xFF;
+  if (!fn(0xFF, kParamTransport, &transport)) {
+    snprintf(outMsg, outMsgLen, "USB devices: %d; transport=read failed; workmode=unknown", usb_count);
+    if (opened_here && !keep_open) close_device_silent();
+    // Some firmware builds don't support ReadDeviceOneParam; treat as warning.
+    set_last_error("", UHF_ERR_OK);
+    return 1;
+  }
+
+  uint8_t workmode = 0xFF;
+  if (!fn(0xFF, kParamWorkMode, &workmode)) {
+    workmode = 0xFF;
+  }
+
+  snprintf(outMsg,
+           outMsgLen,
+           "USB devices: %d; transport=%u (%s); workmode=%u (%s)",
+           usb_count,
+           static_cast<unsigned>(transport),
+           transport_name(transport),
+           static_cast<unsigned>(workmode),
+           workmode_name(workmode));
+
+  if (transport != kTransportUsb) {
+    if (opened_here) close_device_silent();
+    set_last_error("Transport is not USB (set interface to USB)", UHF_ERR_VERIFY_FAILED);
+    return 0;
+  }
+
+  if (opened_here && !keep_open) close_device_silent();
+  set_last_error("", UHF_ERR_OK);
+  return 1;
+}
+
+static int ensure_usb_config_ready(void) {
+  int usb_count = 0;
+  int already_open = UHF_IsOpen();
+  if (!already_open) {
+    usb_count = UHF_GetUsbCount();
+    if (usb_count <= 0) {
+      set_last_error("No USB device found", UHF_ERR_NO_DEVICE);
+      return 0;
+    }
+  }
+  int opened_here = 0;
+  if (!already_open) {
+    if (!UHF_Open(0)) {
+      set_last_error("Open failed for USB config check", UHF_ERR_VENDOR_CALL_FAILED);
+      return 0;
+    }
+    opened_here = 1;
+  }
+  if (!ensure_transport_usb_opened(1)) {
+    if (opened_here) {
+      close_device_silent();
+    }
+    return 0;
+  }
+  set_last_error("", UHF_ERR_OK);
+  return 1;
+}

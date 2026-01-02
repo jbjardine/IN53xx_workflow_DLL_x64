@@ -99,7 +99,22 @@ namespace UhfWrapper
         public static extern int UHF_GetInfo(ref UHF_DeviceInfo info);
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_GetTransport();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_SetTransport(byte transport);
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_SetTransportUsb();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_EnsureUsbTransport();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int UHF_GetWorkMode();
+
+        [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
+        public static extern int UHF_CheckSystemConfig(System.Text.StringBuilder outMsg, int outMsgLen);
 
         [DllImport(Dll, CallingConvention = CallingConvention.StdCall)]
         public static extern int UHF_SetWorkModeAnswer();

@@ -42,6 +42,30 @@ Codes principaux :
 - `UHF_ERR_NO_TAG` (-13)
 - `UHF_ERR_CALIBRATION_FAILED` (-14)
 
+## Interface / Transport (USB HID)
+Le reader doit être en **USB/HID** pour que le wrapper fonctionne.
+
+- Paramètre vendor : **Transport** (index `0x01`, protocole V1.9)
+- Valeurs :
+  - **0 = USB**
+  - **1 = RS232/RS485**
+  - **2 = RJ45**
+  - **3 = WIFI**
+  - **4 = Weigand**
+
+Note : le `SystemConfig.ini` du ReaderSoft utilise son propre mapping (ex: `Transport=1`),
+qui ne correspond pas aux valeurs du paramètre device `0x01`.
+
+Helpers wrapper :
+```
+UHF_GetTransport();         // lit la valeur brute (0..255)
+UHF_SetTransport(v);        // fixe une valeur brute (si vous connaissez le mapping)
+UHF_SetTransportUsb();      // tente de passer en USB
+UHF_EnsureUsbTransport();   // vérifie + passe en USB si besoin
+```
+Si le device est en mode **Weigand (WG26/WG34)**, la lecture HID échoue : il faut repasser en USB
+(via `UHF_SetTransportUsb()` ou ReaderSoft).
+
 ## Build (Windows)
 ```
 cd src/uhf_wrapper
@@ -113,7 +137,7 @@ UHF_CalibrationResult res{};
 UHF_CalibrationTagPrepare(nullptr, 0, calibEpc, sizeof(calibEpc));
 
 // Balaye la puissance puis capture RSSI (applique les reglages)
-UHF_CalibrateByTag(calibEpc, 5, 30, 1, 5, 3, 8000, 3, 1, &res);
+UHF_CalibrateByTag(calibEpc, 0, 26, 1, 3, 2, 8000, 3, 1, &res);
 ```
 Notes :
 - `UHF_CalibrationTagPrepare(..., writeNew=1)` permet d'ecrire un EPC de calibration
@@ -122,6 +146,12 @@ Notes :
   ou juste renvoyer les valeurs (`applySettings=0`).
 - Pendant la calibration, le filtrage EPC est fait **en software** (pas de mask hard),
   pour eviter un blocage de `SetPowerDbm` sur certains firmwares.
+- Le balayage de puissance se fait de **max → min**, et un palier est valide uniquement
+  si **toutes** les lectures prevues reussissent.
+- Si un EPC de calibration est fourni, la presence d'autres EPC est acceptee;
+  la calibration refuse uniquement si elle detecte plusieurs tags partageant
+  le meme EPC (verification best‑effort via TID).
+- Si le lecteur ignore le mask select, la verification de doublon est ignoree.
 
 Lecture calibree (profil deja charge) :
 ```
@@ -192,6 +222,7 @@ UhfWrapperCli.exe --friendly module-cmd <cmdHex> [payloadHex]
 ## API UHF_* (principales)
 - Connexion : `UHF_Init`, `UHF_Open`, `UHF_Close`, `UHF_IsOpen`, `UHF_IsConnected`
 - Infos : `UHF_GetInfo`, `UHF_GetUsbCount`, `UHF_GetUsbInfoRaw`
+- Transport : `UHF_GetTransport`, `UHF_SetTransport`, `UHF_SetTransportUsb`, `UHF_EnsureUsbTransport`
 - Lecture : `UHF_StartRead`, `UHF_StopRead`, `UHF_PeekBuffer*`, `UHF_PopBuffer*`
 - Tag : `UHF_ReadTag`, `UHF_WriteTag`, `UHF_WriteEpc`, `UHF_WriteEpcSelected`,
   `UHF_WriteTagSelected`, `UHF_SelectEpc`, `UHF_ClearSelect`
@@ -213,4 +244,5 @@ UhfWrapperCli.exe --friendly module-cmd <cmdHex> [payloadHex]
 - `UHF_LockTag` utilise `lockCfg = (lockMem << 4) | lockType`.
 - `UHF_WhitelistCount` utilise `SWHid_ReadWhiteListCnt` si disponible,
   sinon il enumere les indices jusqu'a echec.
+- Puissance RF : la plage device est **0–26 dBm** (ReaderSoft peut afficher 0–30).
 - `UHF_GetTagBuf` **vide** le buffer apres lecture (comportement vendor).

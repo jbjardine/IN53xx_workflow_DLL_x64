@@ -97,7 +97,12 @@ UHF_API int UHF_CALL UHF_IsOpen(void);
 UHF_API int UHF_CALL UHF_IsConnected(void);
 
 UHF_API int UHF_CALL UHF_GetInfo(UHF_DeviceInfo* outInfo);
+UHF_API int UHF_CALL UHF_GetTransport(void); // 0=USB, 1=RS232, 2=RJ45, 3=WIFI, 4=Weigand
+UHF_API int UHF_CALL UHF_SetTransport(uint8_t transport);
+UHF_API int UHF_CALL UHF_SetTransportUsb(void);
+UHF_API int UHF_CALL UHF_EnsureUsbTransport(void);
 UHF_API int UHF_CALL UHF_GetWorkMode(void); // 0=Answer, 1=Active, 2=Trigger (if supported)
+UHF_API int UHF_CALL UHF_CheckSystemConfig(char* outMsg, int outMsgLen);
 UHF_API int UHF_CALL UHF_SetWorkModeAnswer(void);
 UHF_API int UHF_CALL UHF_SetWorkModeActive(void);
 UHF_API int UHF_CALL UHF_SetWorkModeTrigger(void); // may be unsupported

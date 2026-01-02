@@ -12,7 +12,12 @@ EXPORTS
   UHF_IsOpen
   UHF_IsConnected
   UHF_GetInfo
+  UHF_GetTransport
+  UHF_SetTransport
+  UHF_SetTransportUsb
+  UHF_EnsureUsbTransport
   UHF_GetWorkMode
+  UHF_CheckSystemConfig
   UHF_SetWorkModeAnswer
   UHF_SetWorkModeActive
   UHF_SetWorkModeTrigger
@@ -94,6 +99,7 @@ EXPORTS
   SWHid_GetTagBuf
   SWHid_GetUsbCount
   SWHid_GetUsbInfo
+  SWHid_InventoryG2
   SWHid_LockCardG2
   SWHid_OpenDevice
   SWHid_ReadCardG2

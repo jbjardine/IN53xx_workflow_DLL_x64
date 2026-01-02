@@ -32,11 +32,11 @@ struct CliOptions {
   int force_multi = 0;
   char calib_epc[UHF_MAX_EPC_HEX + 1] = {0};
   int calib_epc_len = 0;
-  int calib_min = 5;
+  int calib_min = 0;
   int calib_max = 26;
   int calib_step = 1;
-  int calib_reads = 5;
-  int calib_pwr_margin = 3;
+  int calib_reads = 3;
+  int calib_pwr_margin = 2;
   int calib_rssi_margin = 3;
   int calib_capture = 8000;
   int calib_apply = 0;
@@ -84,6 +84,7 @@ static void usage() {
   printf("  count\n");
   printf("  usbinfo\n");
   printf("  status\n");
+  printf("  config-check\n");
   printf("  open\n");
   printf("  close\n");
   printf("  info\n");
@@ -598,6 +599,22 @@ int main(int argc, char** argv) {
   } else if (strcmp(cmd, "status") == 0) {
     exit_code = handle_status(opt);
     handled = 1;
+  } else if (strcmp(cmd, "config-check") == 0) {
+    char msg[256] = {0};
+    int ok = UHF_CheckSystemConfig(msg, sizeof(msg));
+    if (opt.out == OUT_JSON) {
+      printf("{\"ok\":%d,\"message\":\"%s\"}\n", ok, msg);
+    } else if (opt.out == OUT_CSV) {
+      printf("ok,message\n%d,%s\n", ok, msg);
+    } else if (opt.friendly) {
+      printf("Config check: %s\n", ok ? "OK" : "FAILED");
+      printf("%s\n", msg);
+    } else {
+      printf("ConfigCheck: %d\n", ok);
+      printf("Message: %s\n", msg);
+    }
+    if (!ok) exit_code = 1;
+    handled = 1;
   } else if (strcmp(cmd, "open") == 0) {
     int ok = UHF_Open((unsigned short)opt.index);
     printf("Open: %d\n", ok);
@@ -720,21 +737,18 @@ int main(int argc, char** argv) {
       print_tag(&tags[i], opt, &csv_header_done);
     }
   } else if (strcmp(cmd, "read-once") == 0) {
-    int ok = UHF_StartRead();
+    UHF_Tag tags[256];
+    int count = 0;
+    int ok = UHF_ReadOnce(opt.timeout_ms, tags, 256, &count);
     if (!ok) {
       if (opt.friendly) {
         print_friendly_ok("Read once", 0);
         printf("Error: %s\n", UHF_GetLastError());
       } else {
-        printf("StartRead failed: %s\n", UHF_GetLastError());
+        printf("ReadOnce failed: %s\n", UHF_GetLastError());
       }
       exit_code = 1;
     } else {
-      sleep_ms(opt.timeout_ms);
-      UHF_StopRead();
-      UHF_Tag tags[256];
-      int count = 0;
-      ok = pop_tags(tags, 256, &count, opt);
       int printed = 0;
       int csv_header_done = 0;
       for (int i = 0; i < count; ++i) {

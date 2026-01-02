@@ -30,6 +30,7 @@ The goal is to make RFID operations **fast to integrate** (WinDev, C/C++, .NET, 
 - **GPIO/Relay** support when available in the vendor DLL
 - **Robust error reporting**: `UHF_GetLastError()` + `UHF_GetLastErrorCode()`
 - **WorkMode handled automatically**: user‑friendly `UHF_*` calls set Answer/Active as needed (raw `SWHid_*` calls are untouched)
+- **USB interface guard**: user‑friendly `UHF_*` calls verify Transport=USB and can switch back when possible
 
 ## Requirements
 
@@ -118,10 +119,14 @@ UHF_CalibrationResult res{};
 UHF_CalibrationTagPrepare(nullptr, 0, calibEpc, sizeof(calibEpc));
 
 // Sweep power and capture RSSI, then apply settings
-UHF_CalibrateByTag(calibEpc, 5, 30, 1, 5, 3, 8000, 3, 1, &res);
+UHF_CalibrateByTag(calibEpc, 0, 26, 1, 3, 2, 8000, 3, 1, &res);
 ```
 Note: calibration filters EPC in software (no hardware mask) to avoid
 `SetPowerDbm` being rejected by some firmwares while a mask is active.
+Sweep runs from max → min and requires all reads-per-step to pass to accept a power.
+If you pass a calibration EPC, other EPCs can be present; calibration refuses
+only when it can detect multiple tags sharing the same EPC (best-effort via TID).
+If the reader ignores mask select, the duplicate check is skipped (best-effort).
 
 Calibrated reads (use saved profile):
 ```c
@@ -129,9 +134,33 @@ UHF_ReadOnceCalibrated(300, tags, 256, &count);
 UHF_ReadStreamCalibrated(5000, tags, 256, &count);
 ```
 
+## Interface / Transport (USB HID)
+Le reader doit être en **USB/HID** pour les appels `UHF_*`.
+
+Valeurs du paramètre **Transport** (index `0x01`, protocole vendor V1.9) :
+- **0 = USB**
+- **1 = RS232/RS485**
+- **2 = RJ45**
+- **3 = WIFI**
+- **4 = Weigand**
+
+Note : le `SystemConfig.ini` de ReaderSoft utilise son **propre** mapping (ex: `Transport=1`)
+qui ne correspond pas aux valeurs du paramètre device `0x01`.
+
+Helpers :
+```c
+UHF_GetTransport();       // lit la valeur brute
+UHF_SetTransport(v);      // fixe une valeur brute (si vous connaissez le mapping)
+UHF_SetTransportUsb();    // tente de repasser en USB
+UHF_EnsureUsbTransport(); // vérifie + passe en USB si besoin
+```
+Si le device est en mode **Weigand (WG26/WG34)**, il faut repasser en USB (ReaderSoft ou helper).
+
 ## API Highlights
 
 - **Connection**: `UHF_Init`, `UHF_Open`, `UHF_Close`, `UHF_IsOpen`, `UHF_IsConnected`
+- **Config check**: `UHF_CheckSystemConfig` (USB/WorkMode sanity, auto-opens if needed)
+- **Transport helpers**: `UHF_GetTransport`, `UHF_SetTransport`, `UHF_SetTransportUsb`, `UHF_EnsureUsbTransport`
 - **Tag ops**: `UHF_ReadTag`, `UHF_WriteTag`, `UHF_WriteEpc`, `UHF_WriteEpcSelected`,
   `UHF_WriteTagSelected`, `UHF_SelectEpc`, `UHF_ClearSelect`
 - **Buffer**: `UHF_PeekBuffer*`, `UHF_PopBuffer*` (safe variants)
