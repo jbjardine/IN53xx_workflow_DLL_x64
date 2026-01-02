@@ -127,6 +127,8 @@ Sweep runs from max → min and requires all reads-per-step to pass to accept a 
 If you pass a calibration EPC, other EPCs can be present; calibration refuses
 only when it can detect multiple tags sharing the same EPC (best-effort via TID).
 If the reader ignores mask select, the duplicate check is skipped (best-effort).
+Calibration reads use Active+buffered reads for reliability; Answer/InventoryG2
+can return 0 tags on some firmwares.
 
 Calibrated reads (use saved profile):
 ```c

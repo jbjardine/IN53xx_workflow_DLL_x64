@@ -922,6 +922,21 @@ static int count_tags_once(int timeout_ms, int* out_count) {
   return 1;
 }
 
+static int read_tags_active_window(int duration_ms, UHF_Tag* out_tags, int max_tags, int* out_count) {
+  if (!out_tags || max_tags <= 0 || !out_count) return 0;
+  *out_count = 0;
+  if (duration_ms < 0) duration_ms = 0;
+  // Force Active mode for buffered reads.
+  (void)UHF_SetWorkModeActive();
+  (void)UHF_ClearBuffer();
+  if (!UHF_StartRead()) {
+    return 0;
+  }
+  sleep_ms(duration_ms);
+  UHF_StopRead();
+  return UHF_PopBufferAll(out_tags, max_tags, out_count);
+}
+
 static int read_tags_once(int timeout_ms, UHF_Tag* out_tags, int max_tags, int* out_count) {
   if (!out_tags || max_tags <= 0 || !out_count) {
     return 0;
@@ -937,21 +952,13 @@ static int read_tags_once(int timeout_ms, UHF_Tag* out_tags, int max_tags, int* 
     }
     // Fallback: Answer-mode inventory can return 0 tags on some firmwares.
     int restore_answer = (mode == kWorkModeAnswer);
-    if (!UHF_StartRead()) {
-      return 0;
-    }
-    if (timeout_ms < 0) timeout_ms = 0;
-    sleep_ms(timeout_ms);
-    UHF_StopRead();
-    int count = 0;
-    if (!UHF_PopBufferDedup(out_tags, max_tags, &count)) {
-      return 0;
-    }
-    *out_count = count;
+    int active_ms = timeout_ms;
+    if (active_ms < 500) active_ms = 500;
+    int ok_active = read_tags_active_window(active_ms, out_tags, max_tags, out_count);
     if (restore_answer) {
       (void)UHF_SetWorkModeAnswer();
     }
-    return 1;
+    return ok_active;
   }
   if (!UHF_StartRead()) {
     return 0;
@@ -2046,6 +2053,11 @@ UHF_API int UHF_CALL UHF_SetPowerDbm(int dbm) {
     return 0;
   }
   if (!fn(0xFF, 0x05, static_cast<uint8_t>(dbm))) {
+    // Some firmwares only accept power changes via full device param block.
+    if (write_device_param_block(0x05, static_cast<uint8_t>(dbm))) {
+      set_last_error("", UHF_ERR_OK);
+      return 1;
+    }
     set_last_error("SWHid_SetDeviceOneParam failed", UHF_ERR_VENDOR_CALL_FAILED);
     return 0;
   }
@@ -2504,10 +2516,6 @@ UHF_API int UHF_CALL UHF_CalibrateByTag(const char* targetEpcHex,
     return 0;
   }
   memset(outResult, 0, sizeof(*outResult));
-  if (g_is_reading) {
-    set_last_error("Reader is already streaming", UHF_ERR_ALREADY_READING);
-    return 0;
-  }
   // Ensure firmware is not left streaming from a previous session.
   stop_read_vendor(0);
   g_is_reading = 0;
@@ -2530,7 +2538,7 @@ UHF_API int UHF_CALL UHF_CalibrateByTag(const char* targetEpcHex,
   if (!targetEpcHex || !targetEpcHex[0]) {
     UHF_Tag tags[4];
     int count = 0;
-    if (!read_tags_once(200, tags, 4, &count)) {
+    if (!read_tags_active_window(500, tags, 4, &count)) {
       set_last_error("Read tags failed", UHF_ERR_VENDOR_CALL_FAILED);
       return 0;
     }
@@ -2578,9 +2586,11 @@ UHF_API int UHF_CALL UHF_CalibrateByTag(const char* targetEpcHex,
   // by EPC in software during reads instead.
 
   auto set_power_cal = [&](int value) -> int {
-    if (!ensure_work_mode(kWorkModeAnswer, "AnswerMode")) {
-      return 0;
-    }
+    // Ensure RF is stopped before power changes.
+    stop_read_vendor(0);
+    g_is_reading = 0;
+    // Best effort: keep AnswerMode, but don't abort calibration if it can't be set.
+    (void)UHF_SetWorkModeAnswer();
     if (UHF_SetPowerDbm(value)) {
       return 1;
     }
@@ -2603,7 +2613,7 @@ UHF_API int UHF_CALL UHF_CalibrateByTag(const char* targetEpcHex,
     UHF_Tag env_tags[16];
     int env_count = 0;
     if (set_power_cal(powerMaxDbm)) {
-      if (read_tags_once(200, env_tags, 16, &env_count) && env_count > 1) {
+      if (read_tags_active_window(500, env_tags, 16, &env_count) && env_count > 1) {
         multi_env = 1;
       }
     }
@@ -2615,6 +2625,8 @@ UHF_API int UHF_CALL UHF_CalibrateByTag(const char* targetEpcHex,
   if (minHits < 1) minHits = 1;
   int foundPower = -1;
   const int per_read_ms = 300;
+  int per_read_ms_cal = per_read_ms;
+  if (per_read_ms_cal < 500) per_read_ms_cal = 500;
   for (int p = powerMaxDbm; p >= powerMinDbm; p -= powerStepDbm) {
     if (!set_power_cal(p)) {
       if (selection_enabled) UHF_ClearSelect();
@@ -2626,7 +2638,7 @@ UHF_API int UHF_CALL UHF_CalibrateByTag(const char* targetEpcHex,
     for (int i = 0; i < readsPerStep; ++i) {
       UHF_Tag tags[32];
       int count = 0;
-      if (!read_tags_once(per_read_ms, tags, 32, &count)) {
+      if (!read_tags_active_window(per_read_ms_cal, tags, 32, &count)) {
         continue;
       }
       for (int t = 0; t < count; ++t) {

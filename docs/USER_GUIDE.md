@@ -148,6 +148,8 @@ Notes :
   pour eviter un blocage de `SetPowerDbm` sur certains firmwares.
 - Le balayage de puissance se fait de **max → min**, et un palier est valide uniquement
   si **toutes** les lectures prevues reussissent.
+- Les lectures pendant la calibration utilisent **Active + buffer** pour fiabilite;
+  `InventoryG2` (Answer) peut renvoyer 0 tag sur certains firmwares.
 - Si un EPC de calibration est fourni, la presence d'autres EPC est acceptee;
   la calibration refuse uniquement si elle detecte plusieurs tags partageant
   le meme EPC (verification best‑effort via TID).
