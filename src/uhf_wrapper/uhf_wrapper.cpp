@@ -882,8 +882,28 @@ static int count_tags_once(int timeout_ms, int* out_count) {
     (void)UHF_ClearBuffer();
     UHF_Tag tmp[64];
     int tmp_count = 0;
-    if (!inventory_g2_once(timeout_ms, tmp, 64, &tmp_count)) return 0;
-    *out_count = tmp_count;
+    if (inventory_g2_once(timeout_ms, tmp, 64, &tmp_count)) {
+      *out_count = tmp_count;
+      if (tmp_count > 0) return 1;
+      // Fall through to Active-mode buffer fallback if Answer mode yields 0 tags.
+    }
+    // Fallback: use Active-mode buffered read to avoid Answer-mode firmware quirks.
+    int restore_answer = (mode == kWorkModeAnswer);
+    if (!UHF_StartRead()) {
+      return 0;
+    }
+    if (timeout_ms < 0) timeout_ms = 0;
+    sleep_ms(timeout_ms);
+    UHF_StopRead();
+    UHF_Tag tags[256];
+    int count = 0;
+    if (!UHF_PopBufferDedup(tags, 256, &count)) {
+      return 0;
+    }
+    *out_count = count;
+    if (restore_answer) {
+      (void)UHF_SetWorkModeAnswer();
+    }
     return 1;
   } else {
     if (!UHF_StartRead()) {
@@ -911,7 +931,27 @@ static int read_tags_once(int timeout_ms, UHF_Tag* out_tags, int max_tags, int* 
   // ClearTagBuf is for ActiveMode; in AnswerMode it may fail, ignore.
   (void)UHF_ClearBuffer();
   if (mode == kWorkModeAnswer || mode < 0) {
-    return inventory_g2_once(timeout_ms, out_tags, max_tags, out_count);
+    int ok = inventory_g2_once(timeout_ms, out_tags, max_tags, out_count);
+    if (ok && *out_count > 0) {
+      return 1;
+    }
+    // Fallback: Answer-mode inventory can return 0 tags on some firmwares.
+    int restore_answer = (mode == kWorkModeAnswer);
+    if (!UHF_StartRead()) {
+      return 0;
+    }
+    if (timeout_ms < 0) timeout_ms = 0;
+    sleep_ms(timeout_ms);
+    UHF_StopRead();
+    int count = 0;
+    if (!UHF_PopBufferDedup(out_tags, max_tags, &count)) {
+      return 0;
+    }
+    *out_count = count;
+    if (restore_answer) {
+      (void)UHF_SetWorkModeAnswer();
+    }
+    return 1;
   }
   if (!UHF_StartRead()) {
     return 0;
@@ -2204,6 +2244,10 @@ UHF_API int UHF_CALL UHF_WriteEpc(const char* epcHex, const char* pwdHex) {
     set_last_error("Failed to read tags for safety check", UHF_ERR_VENDOR_CALL_FAILED);
     return 0;
   }
+  if (count <= 0) {
+    set_last_error("No tag detected; place a single tag", UHF_ERR_NO_TAG);
+    return 0;
+  }
   if (count > 1) {
     set_last_error("Multiple tags detected; use selected write", UHF_ERR_MULTI_TAG);
     return 0;
@@ -2230,6 +2274,10 @@ UHF_API int UHF_CALL UHF_WriteEpcSelected(const char* targetEpcHex, const char* 
     int count = 0;
     if (!count_tags_once(200, &count)) {
       set_last_error("Failed to read tags for safety check", UHF_ERR_VENDOR_CALL_FAILED);
+      return 0;
+    }
+    if (count <= 0) {
+      set_last_error("No tag detected; place a single tag", UHF_ERR_NO_TAG);
       return 0;
     }
     if (count > 1) {
@@ -2278,6 +2326,10 @@ UHF_API int UHF_CALL UHF_WriteTagSelected(const char* targetEpcHex, uint8_t bank
     int count = 0;
     if (!count_tags_once(200, &count)) {
       set_last_error("Failed to read tags for safety check", UHF_ERR_VENDOR_CALL_FAILED);
+      return 0;
+    }
+    if (count <= 0) {
+      set_last_error("No tag detected; place a single tag", UHF_ERR_NO_TAG);
       return 0;
     }
     if (count > 1) {
