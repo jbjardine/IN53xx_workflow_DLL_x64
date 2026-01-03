@@ -9,34 +9,28 @@
 
 ## Overview
 
-This repository provides a **native Windows wrapper** around the vendor `SWHidApi.dll` for IN53xx / Impinj R2000 UHF RFID readers (HID mode). It exposes:
-
-- A **stable, user‑friendly `UHF_*` API** (x64 + x86, identical surface)
-- A **1:1 re‑export** of all vendor functions (`SWHid_*`), same names/signatures
-- A **CLI** for diagnostics and production testing
-- A **.NET P/Invoke layer** for easy integration in C# apps
-
-The goal is to make RFID operations **fast to integrate** (WinDev, C/C++, .NET, etc.) while keeping **full access** to the original vendor SDK.
+Native Windows wrapper around the vendor `SWHidApi.dll` for IN53xx / Impinj R2000 UHF RFID readers (HID mode).
+The goal is a stable, user-friendly API (`UHF_*`) with identical x64/x86 surface, plus a CLI for diagnostics.
+All vendor functions are re-exported 1:1 so you can call `SWHid_*` without loading the vendor DLL directly.
 
 ## Key Features
 
-- **Cross‑arch parity**: x64 and x86 expose the same `UHF_*` functions
-- **User‑friendly helpers**: read/stream, buffer pop/peek, whitelist management
-- **Safe writes**: single‑tag check + read‑back verification (override with `--force`)
-- **Select + Write multi‑tag**: mask selection is enforced for targeted writes
-- **Anti‑double read window**: optional time window to avoid repeat EPC returns
-- **RSSI filter (software)**: filter read results by RSSI range
-- **Auto‑calibration**: power sweep + RSSI window, optional apply
-- **GPIO/Relay** support when available in the vendor DLL
-- **Robust error reporting**: `UHF_GetLastError()` + `UHF_GetLastErrorCode()`
-- **WorkMode handled automatically**: user‑friendly `UHF_*` calls set Answer/Active as needed (raw `SWHid_*` calls are untouched)
-- **USB interface guard**: user‑friendly `UHF_*` calls verify Transport=USB and can switch back when possible
+- Same `UHF_*` API for x64 and x86 (one surface, two builds)
+- Re-export of vendor SDK (same names/signatures)
+- CLI for production checks and diagnostics
+- Safe writes (single-tag guard + read-back verification, force override available)
+- Select + Write for multi-tag targeting
+- Anti-double read window (dedup by time, optional EPC+antenna key)
+- RSSI filter (software)
+- Auto-calibration (power sweep + RSSI window, optional apply)
+- WorkMode handled automatically in user-friendly calls
+- USB transport guard with auto-switch when possible
 
 ## Requirements
 
 - Windows 10/11
-- Vendor SDK DLL `SWHidApi.dll` (x64 and/or x86)
-- CMake + Visual Studio build tools (for compiling)
+- Vendor `SWHidApi.dll` (x64 and/or x86)
+- CMake + Visual Studio Build Tools
 
 ## Quick Start
 
@@ -60,7 +54,7 @@ Outputs (Release):
 - `UhfWrapperCli.exe`
 - `SWHidApi.dll` (copied when available)
 
-> You can override the vendor DLL path at runtime:
+> Override vendor DLL path at runtime:
 >
 > ```powershell
 > set UHF_VENDOR_DLL=C:\path\to\SWHidApi.dll
@@ -72,29 +66,21 @@ Outputs (Release):
 UhfWrapperCli.exe --friendly status
 UhfWrapperCli.exe --friendly read-once
 UhfWrapperCli.exe --friendly read-stream --duration 2000
-UhfWrapperCli.exe --friendly calib-prepare
-UhfWrapperCli.exe --friendly calib-run --calib-max 10 --apply
-UhfWrapperCli.exe --friendly calib-save C:\\temp\\uhf_calib.txt
-UhfWrapperCli.exe --friendly calib-load C:\\temp\\uhf_calib.txt --apply
-UhfWrapperCli.exe --friendly read-once-calib
-UhfWrapperCli.exe --friendly read-stream-calib --duration 2000
 UhfWrapperCli.exe --friendly rssi-filter --rssi-min -65 --rssi-max -40
 
-# Select a tag and write EPC (multi‑tag safe)
+# Select a tag and write EPC (multi-tag safe)
 UhfWrapperCli.exe --friendly select-epc <EPC_HEX>
 UhfWrapperCli.exe --friendly write-epc <NEW_EPC_HEX> 00000000
 UhfWrapperCli.exe --friendly select-clear
 
-# One‑shot write with safety (blocks if multiple tags detected)
+# One-shot write with safety (blocks if multiple tags detected)
 UhfWrapperCli.exe --friendly --target <EPC_ACTUEL> write-epc <NEW_EPC_HEX> 00000000
 UhfWrapperCli.exe --friendly --target <EPC_ACTUEL> --force write-epc <NEW_EPC_HEX> 00000000
-
-# Targeted memory write (same safety rules)
-UhfWrapperCli.exe --friendly --target <EPC_ACTUEL> write 3 0 11223344 00000000
-UhfWrapperCli.exe --friendly --target <EPC_ACTUEL> --force write 3 0 11223344 00000000
 ```
 
-Anti‑double (API):
+## API Examples
+
+Anti-double (dedup window):
 
 ```c
 UHF_DedupWindowSet(3000);   // 3 seconds
@@ -109,7 +95,21 @@ UHF_RssiFilterSet(-65, -40); // keep only tags in [-65..-40] dBm
 UHF_RssiFilterReset();       // disable filter
 ```
 
-Auto‑calibration (power + RSSI window):
+## Auto-Calibration (how it works)
+
+### What it does
+
+1) Choose a target EPC (single-tag or explicit EPC when multiple tags).
+2) Sweep RF power from max to min in steps.
+3) At each step, read the tag multiple times (Active + buffer for reliability).
+4) Keep the lowest power that still detects the tag consistently.
+5) Capture RSSI stats at the recommended power and compute filter window.
+6) Optionally apply power + RSSI filter to the reader.
+
+Calibration filters by EPC in software (no hardware mask) to avoid some firmwares
+rejecting `SetPowerDbm` while a mask is active.
+
+### DLL usage
 
 ```c
 char calibEpc[128] = {0};
@@ -121,124 +121,66 @@ UHF_CalibrationTagPrepare(nullptr, 0, calibEpc, sizeof(calibEpc));
 // Sweep power and capture RSSI, then apply settings
 UHF_CalibrateByTag(calibEpc, 0, 26, 1, 3, 2, 8000, 3, 1, &res);
 ```
-Note: calibration filters EPC in software (no hardware mask) to avoid
-`SetPowerDbm` being rejected by some firmwares while a mask is active.
-Sweep runs from max → min and requires all reads-per-step to pass to accept a power.
-If you pass a calibration EPC, other EPCs can be present; calibration refuses
-only when it can detect multiple tags sharing the same EPC (best-effort via TID).
-If the reader ignores mask select, the duplicate check is skipped (best-effort).
-Calibration reads use Active+buffered reads for reliability; Answer/InventoryG2
-can return 0 tags on some firmwares.
 
-Calibrated reads (use saved profile):
-```c
-UHF_ReadOnceCalibrated(300, tags, 256, &count);
-UHF_ReadStreamCalibrated(5000, tags, 256, &count);
+### CLI usage
+
+```powershell
+UhfWrapperCli.exe --friendly calib-prepare
+UhfWrapperCli.exe --friendly calib-run --calib-min 0 --calib-max 26 --calib-step 1 --calib-reads 3 --calib-pwr-margin 2 --calib-capture 8000 --calib-rssi-margin 3 --apply
+```
+
+If multiple tags are present, pass a target EPC:
+
+```powershell
+UhfWrapperCli.exe --friendly --calib-epc <EPC_HEX> calib-run --calib-min 0 --calib-max 26 --calib-step 1 --calib-reads 3 --calib-pwr-margin 2 --calib-capture 8000 --calib-rssi-margin 3 --apply
 ```
 
 ## Interface / Transport (USB HID)
-Le reader doit être en **USB/HID** pour les appels `UHF_*`.
 
-Valeurs du paramètre **Transport** (index `0x01`, protocole vendor V1.9) :
-- **0 = USB**
-- **1 = RS232/RS485**
-- **2 = RJ45**
-- **3 = WIFI**
-- **4 = Weigand**
+The reader must be in USB/HID for `UHF_*` calls.
 
-Note : le `SystemConfig.ini` de ReaderSoft utilise son **propre** mapping (ex: `Transport=1`)
-qui ne correspond pas aux valeurs du paramètre device `0x01`.
+Transport param (index `0x01`, vendor protocol V1.9):
+- 0 = USB
+- 1 = RS232/RS485
+- 2 = RJ45
+- 3 = WIFI
+- 4 = Weigand
 
-Helpers :
+Note: ReaderSoft `SystemConfig.ini` uses its own mapping (e.g., `Transport=1`) which
+is not the same as the device parameter `0x01`.
+
+Helpers:
+
 ```c
-UHF_GetTransport();       // lit la valeur brute
-UHF_SetTransport(v);      // fixe une valeur brute (si vous connaissez le mapping)
-UHF_SetTransportUsb();    // tente de repasser en USB
-UHF_EnsureUsbTransport(); // vérifie + passe en USB si besoin
+UHF_GetTransport();       // read raw value
+UHF_SetTransport(v);      // set raw value if you know mapping
+UHF_SetTransportUsb();    // attempt to switch to USB
+UHF_EnsureUsbTransport(); // verify + switch to USB if possible
 ```
-Si le device est en mode **Weigand (WG26/WG34)**, il faut repasser en USB (ReaderSoft ou helper).
 
-## API Highlights
-
-- **Connection**: `UHF_Init`, `UHF_Open`, `UHF_Close`, `UHF_IsOpen`, `UHF_IsConnected`
-- **Config check**: `UHF_CheckSystemConfig` (USB/WorkMode sanity, auto-opens if needed)
-- **Transport helpers**: `UHF_GetTransport`, `UHF_SetTransport`, `UHF_SetTransportUsb`, `UHF_EnsureUsbTransport`
-- **Tag ops**: `UHF_ReadTag`, `UHF_WriteTag`, `UHF_WriteEpc`, `UHF_WriteEpcSelected`,
-  `UHF_WriteTagSelected`, `UHF_SelectEpc`, `UHF_ClearSelect`
-- **Buffer**: `UHF_PeekBuffer*`, `UHF_PopBuffer*` (safe variants)
-- **Dedup window**: `UHF_DedupWindowSet`, `UHF_DedupWindowReset`, `UHF_DedupKeySet`,
-  `UHF_PopBufferDedupFiltered`
-- **Read once (custom)**: `UHF_ReadOnce`
-- **RSSI filter**: `UHF_RssiFilterSet`, `UHF_RssiFilterReset`
-- **Calibration**: `UHF_CalibrationTagPrepare`, `UHF_CalibrateByTag`
-- **Calibration persistence**: `UHF_CalibrationSave`, `UHF_CalibrationLoad`
-- **Calibrated reads**: `UHF_ReadOnceCalibrated`, `UHF_ReadStreamCalibrated`
-- **Power/Frequency**: `UHF_GetPowerDbm/Pct`, `UHF_SetPowerDbm/Pct`, `UHF_GetFreq`, `UHF_SetFreq`
-- **Whitelist**: `UHF_WhitelistCount`, `UHF_WhitelistGetRaw/Hex`, `UHF_WhitelistAddEpc`,
-  `UHF_WhitelistRemoveEpc`, `UHF_WhitelistClear`
-- **Advanced**: `UHF_ModuleCommand` (if vendor exports it)
-
-For full details, see `docs/USER_GUIDE.md`.
-
-## Official mapping (WinDev example → wrapper)
-
-This is the direct mapping for what your current WinDev examples already do:
-
-- `SWHid_GetUsbCount` → `UHF_GetUsbCount`
-- `SWHid_GetUsbInfo` → `UHF_GetUsbInfoRaw`
-- `SWHid_OpenDevice` → `UHF_Open`
-- `SWHid_GetDeviceSystemInfo` → `UHF_GetInfo`
-- `SWHid_ClearTagBuf` → `UHF_ClearBuffer`
-- `SWHid_GetTagBuf` → `UHF_PopBufferAll/Dedup/Safe`
-- `SWHid_ReadDeviceOneParam(0x05)` → `UHF_GetPowerDbm`
-- `SWHid_SetDeviceOneParam(0x05)` → `UHF_SetPowerDbm`
-- `% helper` (your WinDev) → `UHF_GetPowerPct` / `UHF_SetPowerPct`
-- loop “lecture en direct” → `UHF_StartRead` + `UHF_PopBuffer*` + `UHF_StopRead`
-
-## .NET Wrapper
-
-Minimal P/Invoke projects are provided:
-
-- `src/uhf_wrapper/dotnet/UhfWrapperNet.csproj` (x64)
-- `src/uhf_wrapper/dotnet/UhfWrapperNet.x86.csproj` (x86)
+If the device is in Weigand (WG26/WG34), switch back to USB via ReaderSoft or helper.
 
 ## Project Structure
 
 ```
-.
-├─ docs/                # Guides and agent notes
-├─ exemple/             # WinDev examples
-├─ src/uhf_wrapper/     # Core wrapper + CLI + .NET
-├─ vendor/              # Vendor SDK (private/local copy)
-└─ build-*              # Build outputs (local)
+IN53xx_workflow_DLL_x64/
+├── src/uhf_wrapper/        # wrapper source (DLL + CLI)
+│   ├── uhf_wrapper.cpp
+│   ├── uhf_wrapper.h
+│   ├── UhfWrapper.def
+│   └── uhf_cli.cpp
+├── docs/                   # user guide, agents notes
+├── vendor/                 # vendor SDK and DLLs
+├── exemple/                # WinDev examples
+├── build-x64/              # x64 build output
+├── build-x86/              # x86 build output
+└── README.md
 ```
-
-## Documentation
-
-- User guide: `docs/USER_GUIDE.md`
-- Changelog: `CHANGELOG.md`
-- Project memory (decisions, bugs, key facts): `docs/project_notes/`
-- Structure: `docs/STRUCTURE.md`
-- Architecture: `docs/ARCHITECTURE.md`
-- Legacy notes: `history.md`
-
-## Reporting Issues
-
-Found a bug or have a feature request? Please open an issue:
-
-https://github.com/jbjardine/IN53xx_workflow_DLL_x64/issues
-
-When reporting, include the reader model, OS version, and the exact command/API call used.
-
-## Contributing
-
-Contributions are welcome:
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit changes with clear messages
-4. Open a Pull Request
 
 ## License
 
 MIT. See `LICENSE`.
+
+## Support
+
+Open an issue: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/issues
