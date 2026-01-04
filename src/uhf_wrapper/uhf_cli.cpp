@@ -387,6 +387,27 @@ static const char* workmode_name(int val) {
   }
 }
 
+static const char* freq_region_name(uint8_t b0, uint8_t b1) {
+  struct Map { uint8_t b0; uint8_t b1; const char* name; } map[] = {
+    {0x31, 0x80, "US"},
+    {0x4E, 0x00, "EU"},
+    {0x2C, 0xA3, "CN"},
+    {0x29, 0x9D, "KR"},
+    {0x2E, 0x9F, "AU"},
+    {0x2C, 0x81, "SG"},
+    {0x31, 0xA7, "TW"},
+    {0x31, 0x99, "BR"},
+    {0x1C, 0x99, "IL"},
+    {0x24, 0x9D, "ZA"},
+    {0x28, 0xA1, "MY"},
+    {0x29, 0x9D, "JP"},
+  };
+  for (const auto& it : map) {
+    if (it.b0 == b0 && it.b1 == b1) return it.name;
+  }
+  return "Unknown";
+}
+
 static int handle_status(const CliOptions& opt) {
   int present = UHF_IsReaderPresent();
   int open = UHF_IsOpen();
@@ -759,7 +780,7 @@ int main(int argc, char** argv) {
           printf("Power: %d dBm (%d%%)\n", st.powerDbm, st.powerPct);
         }
         if (st.hasFreq) {
-          printf("Freq: 0x%02X 0x%02X\n", st.freq0, st.freq1);
+          printf("Freq: %s\n", freq_region_name(st.freq0, st.freq1));
         }
         if (st.rssiFilterEnabled) {
           printf("RSSI filter: [%d..%d] dBm\n", st.rssiFilterMinDbm, st.rssiFilterMaxDbm);
@@ -778,7 +799,7 @@ int main(int argc, char** argv) {
                st.present, st.open, st.connected, st.transport, st.workMode,
                st.powerDbm, st.powerPct);
         if (st.hasFreq) {
-          printf("freq=0x%02X 0x%02X\n", st.freq0, st.freq1);
+          printf("freq=%s\n", freq_region_name(st.freq0, st.freq1));
         }
         if (st.rssiFilterEnabled) {
           printf("rssiFilter=enabled rssiMin=%d rssiMax=%d dedupWindowMs=%d dedupKeyMode=%d\n",
