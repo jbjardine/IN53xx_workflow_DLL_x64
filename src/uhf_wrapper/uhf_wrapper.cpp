@@ -508,6 +508,28 @@ static int read_transport_param(uint8_t* out_val) {
   return 1;
 }
 
+static int read_param_with_block(uint8_t param, uint8_t* out_val) {
+  if (!out_val) {
+    set_last_error("Invalid param buffer", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  using FnRead = int (VENDOR_CALL*)(uint8_t, uint8_t, uint8_t*);
+  auto fn_read = load_fn<FnRead>("SWHid_ReadDeviceOneParam");
+  if (!fn_read) {
+    set_last_error("Missing SWHid_ReadDeviceOneParam", UHF_ERR_VENDOR_MISSING);
+    return 0;
+  }
+  if (!fn_read(0xFF, param, out_val)) {
+    uint8_t tmp = 0;
+    if (read_device_param_block(param, &tmp)) {
+      *out_val = tmp;
+      return 1;
+    }
+    set_last_error("SWHid_ReadDeviceOneParam failed", UHF_ERR_VENDOR_CALL_FAILED);
+    return 0;
+  }
+  return 1;
+}
 static int set_transport_param(uint8_t val) {
   // Prefer full device param block to match vendor soft behavior (persists config).
   if (write_device_param_block(kParamTransport, val)) {
@@ -1623,22 +1645,117 @@ UHF_API int UHF_CALL UHF_GetInfo(UHF_DeviceInfo* outInfo) {
   return 1;
 }
 
-UHF_API int UHF_CALL UHF_GetTransport(void) {
-  int usb_count = UHF_GetUsbCount();
-  if (usb_count <= 0) {
-    set_last_error("No USB device found", UHF_ERR_NO_DEVICE);
-    return -1;
+UHF_API int UHF_CALL UHF_GetStatus(UHF_Status* outStatus) {
+  if (!outStatus) {
+    set_last_error("Invalid outStatus", UHF_ERR_INVALID_ARG);
+    return 0;
   }
+  memset(outStatus, 0, sizeof(*outStatus));
+  outStatus->present = UHF_IsReaderPresent();
+  outStatus->open = UHF_IsOpen();
+  outStatus->connected = UHF_IsConnected();
+  outStatus->powerDbm = -1;
+  outStatus->powerPct = -1;
+  outStatus->transport = -1;
+  outStatus->workMode = -1;
+  outStatus->hasFreq = 0;
+  outStatus->rssiFilterEnabled = 0;
+  outStatus->rssiFilterMinDbm = std::numeric_limits<int>::min();
+  outStatus->rssiFilterMaxDbm = std::numeric_limits<int>::max();
+  outStatus->dedupWindowMs = 0;
+  outStatus->dedupKeyMode = 0;
+
+  {
+    std::lock_guard<std::mutex> lock(g_dedup_mutex);
+    outStatus->dedupWindowMs = g_dedup_window_ms;
+    outStatus->dedupKeyMode = g_dedup_key_mode;
+    outStatus->rssiFilterMinDbm = g_rssi_min_dbm;
+    outStatus->rssiFilterMaxDbm = g_rssi_max_dbm;
+    outStatus->rssiFilterEnabled =
+        (g_rssi_min_dbm != std::numeric_limits<int>::min()) ||
+        (g_rssi_max_dbm != std::numeric_limits<int>::max());
+  }
+
+  if (!outStatus->present) {
+    set_last_error("", UHF_ERR_OK);
+    return 1;
+  }
+
+  int opened_here = 0;
   if (!UHF_IsOpen()) {
+    if (!UHF_Open(0)) {
+      set_last_error("Open failed for status", UHF_ERR_VENDOR_CALL_FAILED);
+      return 0;
+    }
+    opened_here = 1;
+  }
+
+  uint8_t transport = 0xFF;
+  if (read_transport_param(&transport)) {
+    outStatus->transport = static_cast<int>(transport);
+  }
+  if (outStatus->transport < 0) {
+    int t = UHF_GetTransport();
+    if (t >= 0) outStatus->transport = t;
+  }
+
+  uint8_t workmode = 0xFF;
+  if (read_param_with_block(kParamWorkMode, &workmode)) {
+    outStatus->workMode = static_cast<int>(workmode);
+  }
+  if (outStatus->workMode < 0) {
+    int w = UHF_GetWorkMode();
+    if (w >= 0) outStatus->workMode = w;
+  }
+
+  uint8_t power = 0;
+  if (read_param_with_block(0x05, &power)) {
+    outStatus->powerDbm = static_cast<int>(power);
+    int pct = static_cast<int>((outStatus->powerDbm * 100.0) / 26.0 + 0.5);
+    if (pct < 0) pct = 0;
+    if (pct > 100) pct = 100;
+    outStatus->powerPct = pct;
+  }
+  if (outStatus->powerDbm < 0) {
+    int p = UHF_GetPowerDbm();
+    if (p >= 0) {
+      outStatus->powerDbm = p;
+      outStatus->powerPct = UHF_GetPowerPct();
+    }
+  }
+
+  uint8_t freq[2] = {0};
+  if (UHF_GetFreq(freq)) {
+    outStatus->freq0 = freq[0];
+    outStatus->freq1 = freq[1];
+    outStatus->hasFreq = 1;
+  }
+
+  if (opened_here) close_device_silent();
+  set_last_error("", UHF_ERR_OK);
+  return 1;
+}
+
+UHF_API int UHF_CALL UHF_GetTransport(void) {
+  int opened_here = 0;
+  if (!UHF_IsOpen()) {
+    int usb_count = UHF_GetUsbCount();
+    if (usb_count <= 0) {
+      set_last_error("No USB device found", UHF_ERR_NO_DEVICE);
+      return -1;
+    }
     if (!UHF_Open(0)) {
       set_last_error("Open failed for transport read", UHF_ERR_VENDOR_CALL_FAILED);
       return -1;
     }
+    opened_here = 1;
   }
   uint8_t transport = 0xFF;
   if (!read_transport_param(&transport)) {
+    if (opened_here) close_device_silent();
     return -1;
   }
+  if (opened_here) close_device_silent();
   return static_cast<int>(transport);
 }
 

@@ -12,6 +12,7 @@ EXPORTS
   UHF_IsOpen
   UHF_IsConnected
   UHF_GetInfo
+  UHF_GetStatus
   UHF_GetTransport
   UHF_SetTransport
   UHF_SetTransportUsb

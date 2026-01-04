@@ -38,10 +38,11 @@ Calibration options:
 
 ## Core Commands
 
+- `count` : number of USB HID devices
 - `status` : reader present / open / connected
 - `usbinfo` : list USB HID devices
 - `open` / `close`
-- `info` : firmware/hardware info
+- `info` : extended status (transport, power, freq) + firmware/hardware info
 - `config-check` : system config diagnostics
 
 ## Read Commands

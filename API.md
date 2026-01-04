@@ -74,6 +74,27 @@ typedef struct UHF_DeviceInfo {
 } UHF_DeviceInfo;
 ```
 
+### `UHF_Status`
+```c
+typedef struct UHF_Status {
+  int32_t present;
+  int32_t open;
+  int32_t connected;
+  int32_t powerDbm;
+  int32_t powerPct;
+  int32_t transport;
+  int32_t workMode;
+  uint8_t freq0;
+  uint8_t freq1;
+  int32_t hasFreq;
+  int32_t rssiFilterEnabled;
+  int32_t rssiFilterMinDbm;
+  int32_t rssiFilterMaxDbm;
+  int32_t dedupWindowMs;
+  int32_t dedupKeyMode;
+} UHF_Status;
+```
+
 ### `UHF_CalibrationResult`
 ```c
 typedef struct UHF_CalibrationResult {
@@ -118,7 +139,11 @@ int UHF_Close(void);
 int UHF_IsReaderPresent(void);
 int UHF_IsOpen(void);
 int UHF_IsConnected(void);
+int UHF_GetStatus(UHF_Status* outStatus);
 ```
+
+`UHF_GetStatus` is a convenience call that aggregates connection state,
+transport/workmode, power, frequency, and wrapper-side filters (dedup/RSSI).
 
 ### Info / transport / work mode
 ```c

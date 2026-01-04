@@ -48,6 +48,24 @@ typedef struct UHF_DeviceInfo {
   char sn[32];
 } UHF_DeviceInfo;
 
+typedef struct UHF_Status {
+  int32_t present;
+  int32_t open;
+  int32_t connected;
+  int32_t powerDbm;       // -1 if unknown
+  int32_t powerPct;       // -1 if unknown
+  int32_t transport;      // -1 if unknown
+  int32_t workMode;       // -1 if unknown
+  uint8_t freq0;          // raw byte 0 (if hasFreq=1)
+  uint8_t freq1;          // raw byte 1 (if hasFreq=1)
+  int32_t hasFreq;
+  int32_t rssiFilterEnabled;
+  int32_t rssiFilterMinDbm;
+  int32_t rssiFilterMaxDbm;
+  int32_t dedupWindowMs;
+  int32_t dedupKeyMode;   // 0=EPC, 1=EPC+antenna
+} UHF_Status;
+
 typedef struct UHF_CalibrationResult {
   int32_t minDetectPowerDbm;
   int32_t recommendedPowerDbm;
@@ -97,6 +115,7 @@ UHF_API int UHF_CALL UHF_IsOpen(void);
 UHF_API int UHF_CALL UHF_IsConnected(void);
 
 UHF_API int UHF_CALL UHF_GetInfo(UHF_DeviceInfo* outInfo);
+UHF_API int UHF_CALL UHF_GetStatus(UHF_Status* outStatus);
 UHF_API int UHF_CALL UHF_GetTransport(void); // 0=USB, 1=RS232, 2=RJ45, 3=WIFI, 4=Weigand
 UHF_API int UHF_CALL UHF_SetTransport(uint8_t transport);
 UHF_API int UHF_CALL UHF_SetTransportUsb(void);

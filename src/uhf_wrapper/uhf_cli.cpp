@@ -367,6 +367,26 @@ static int region_to_freq(const char* region, unsigned char* b0, unsigned char* 
   return 0;
 }
 
+static const char* transport_name(int val) {
+  switch (val) {
+    case 0: return "USB";
+    case 1: return "RS232/RS485";
+    case 2: return "RJ45";
+    case 3: return "WIFI";
+    case 4: return "Weigand";
+    default: return "Unknown";
+  }
+}
+
+static const char* workmode_name(int val) {
+  switch (val) {
+    case 0: return "Answer";
+    case 1: return "Active";
+    case 2: return "Trigger";
+    default: return "Unknown";
+  }
+}
+
 static int handle_status(const CliOptions& opt) {
   int present = UHF_IsReaderPresent();
   int open = UHF_IsOpen();
@@ -670,24 +690,106 @@ int main(int argc, char** argv) {
   if (handled) {
     // No-op: already handled above.
   } else if (strcmp(cmd, "info") == 0) {
+    int t_direct = UHF_GetTransport();
+    int w_direct = UHF_GetWorkMode();
+    int p_direct = UHF_GetPowerDbm();
+    int pct_direct = (p_direct >= 0) ? UHF_GetPowerPct() : -1;
+    uint8_t f_direct[2] = {0};
+    int has_f_direct = UHF_GetFreq(f_direct) ? 1 : 0;
+
+    UHF_Status st{};
     UHF_DeviceInfo info{};
-    if (UHF_GetInfo(&info)) {
+    int ok_info = UHF_GetInfo(&info);
+    int ok_status = UHF_GetStatus(&st);
+    if (t_direct >= 0) st.transport = t_direct;
+    if (w_direct >= 0) st.workMode = w_direct;
+    if (p_direct >= 0) {
+      st.powerDbm = p_direct;
+      st.powerPct = pct_direct;
+    }
+    if (has_f_direct) {
+      st.freq0 = f_direct[0];
+      st.freq1 = f_direct[1];
+      st.hasFreq = 1;
+    }
+    if (ok_info || ok_status) {
       if (opt.out == OUT_JSON) {
-        printf("{\"swMajor\":%u,\"swMinor\":%u,\"hwMajor\":%u,\"hwMinor\":%u,\"sn\":\"%s\"}\n",
+        printf("{\"present\":%d,\"open\":%d,\"connected\":%d,"
+               "\"transport\":%d,\"transportName\":\"%s\","
+               "\"workMode\":%d,\"workModeName\":\"%s\","
+               "\"powerDbm\":%d,\"powerPct\":%d,"
+               "\"freq0\":%u,\"freq1\":%u,\"hasFreq\":%d,"
+               "\"rssiFilterEnabled\":%d,\"rssiMinDbm\":%d,\"rssiMaxDbm\":%d,"
+               "\"dedupWindowMs\":%d,\"dedupKeyMode\":%d,"
+               "\"swMajor\":%u,\"swMinor\":%u,\"hwMajor\":%u,\"hwMinor\":%u,"
+               "\"sn\":\"%s\"}\n",
+               st.present, st.open, st.connected,
+               st.transport, transport_name(st.transport),
+               st.workMode, workmode_name(st.workMode),
+               st.powerDbm, st.powerPct,
+               st.freq0, st.freq1, st.hasFreq,
+               st.rssiFilterEnabled, st.rssiFilterMinDbm, st.rssiFilterMaxDbm,
+               st.dedupWindowMs, st.dedupKeyMode,
                info.softMajor, info.softMinor, info.hardMajor, info.hardMinor, info.sn);
       } else if (opt.out == OUT_CSV) {
-        printf("swMajor,swMinor,hwMajor,hwMinor,sn\n%u,%u,%u,%u,%s\n",
+        printf("present,open,connected,transport,transportName,workMode,workModeName,"
+               "powerDbm,powerPct,freq0,freq1,hasFreq,"
+               "rssiFilterEnabled,rssiMinDbm,rssiMaxDbm,dedupWindowMs,dedupKeyMode,"
+               "swMajor,swMinor,hwMajor,hwMinor,sn\n");
+        printf("%d,%d,%d,%d,%s,%d,%s,%d,%d,%u,%u,%d,%d,%d,%d,%d,%d,%u,%u,%u,%u,%s\n",
+               st.present, st.open, st.connected,
+               st.transport, transport_name(st.transport),
+               st.workMode, workmode_name(st.workMode),
+               st.powerDbm, st.powerPct,
+               st.freq0, st.freq1, st.hasFreq,
+               st.rssiFilterEnabled, st.rssiFilterMinDbm, st.rssiFilterMaxDbm,
+               st.dedupWindowMs, st.dedupKeyMode,
                info.softMajor, info.softMinor, info.hardMajor, info.hardMinor, info.sn);
       } else if (opt.friendly) {
-        printf("Firmware: %u.%u\n", info.softMajor, info.softMinor);
-        printf("Hardware: %u.%u\n", info.hardMajor, info.hardMinor);
-        printf("Serial: %s\n", info.sn);
+        print_friendly_bool("Reader present", st.present);
+        print_friendly_bool("Port open", st.open);
+        print_friendly_bool("Connected", st.connected);
+        if (st.transport >= 0) {
+          printf("Transport: %s (%d)\n", transport_name(st.transport), st.transport);
+        }
+        if (st.workMode >= 0) {
+          printf("WorkMode: %s (%d)\n", workmode_name(st.workMode), st.workMode);
+        }
+        if (st.powerDbm >= 0) {
+          printf("Power: %d dBm (%d%%)\n", st.powerDbm, st.powerPct);
+        }
+        if (st.hasFreq) {
+          printf("Freq: 0x%02X 0x%02X\n", st.freq0, st.freq1);
+        }
+        if (st.rssiFilterEnabled) {
+          printf("RSSI filter: [%d..%d] dBm\n", st.rssiFilterMinDbm, st.rssiFilterMaxDbm);
+        } else {
+          printf("RSSI filter: disabled\n");
+        }
+        printf("Dedup window: %d ms (key=%s)\n",
+               st.dedupWindowMs, st.dedupKeyMode ? "EPC+ant" : "EPC");
+        if (ok_info) {
+          printf("Firmware: %u.%u\n", info.softMajor, info.softMinor);
+          printf("Hardware: %u.%u\n", info.hardMajor, info.hardMinor);
+          printf("Serial: %s\n", info.sn);
+        }
       } else {
-        printf("SW v%u.%u HW v%u.%u SN=%s\n",
-               info.softMajor, info.softMinor, info.hardMajor, info.hardMinor, info.sn);
+        printf("present=%d open=%d connected=%d transport=%d workMode=%d power=%d dBm pct=%d\n",
+               st.present, st.open, st.connected, st.transport, st.workMode,
+               st.powerDbm, st.powerPct);
+        if (st.hasFreq) {
+          printf("freq=0x%02X 0x%02X\n", st.freq0, st.freq1);
+        }
+        printf("rssiFilter=%d rssiMin=%d rssiMax=%d dedupWindowMs=%d dedupKeyMode=%d\n",
+               st.rssiFilterEnabled, st.rssiFilterMinDbm, st.rssiFilterMaxDbm,
+               st.dedupWindowMs, st.dedupKeyMode);
+        if (ok_info) {
+          printf("SW v%u.%u HW v%u.%u SN=%s\n",
+                 info.softMajor, info.softMinor, info.hardMajor, info.hardMinor, info.sn);
+        }
       }
     } else {
-      printf("GetInfo failed: %s\n", UHF_GetLastError());
+      printf("Info failed: %s\n", UHF_GetLastError());
       exit_code = 1;
     }
   } else if (strcmp(cmd, "start") == 0) {
