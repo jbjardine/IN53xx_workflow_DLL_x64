@@ -60,6 +60,11 @@ Outputs (Release):
 > set UHF_VENDOR_DLL=C:\path\to\SWHidApi.dll
 > ```
 
+## Documentation
+
+- API reference: `API.md`
+- CLI reference: `CLI.md`
+
 ## CLI Examples
 
 ```powershell
