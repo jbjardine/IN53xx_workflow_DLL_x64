@@ -29,7 +29,7 @@ All vendor functions are re-exported 1:1 so you can call `SWHid_*` without loadi
 ## Requirements
 
 - Windows 10/11
-- Vendor `SWHidApi.dll` (x64 and/or x86)
+- Vendor `SWHidApi.dll` (x64 and/or x86) — not shipped in this public repo
 - CMake + Visual Studio Build Tools
 
 ## Quick Start
@@ -77,6 +77,96 @@ UhfWrapperCli.exe --friendly select-clear
 UhfWrapperCli.exe --friendly --target <EPC_ACTUEL> write-epc <NEW_EPC_HEX> 00000000
 UhfWrapperCli.exe --friendly --target <EPC_ACTUEL> --force write-epc <NEW_EPC_HEX> 00000000
 ```
+
+## API Reference (Friendly `UHF_*`)
+
+The public, stable surface is the `UHF_*` API (same for x64/x86). For exact
+signatures, see `src/uhf_wrapper/uhf_wrapper.h`.
+
+Core / lifecycle:
+- `UHF_Init`, `UHF_Shutdown`
+- `UHF_Open`, `UHF_Close`
+- `UHF_IsReaderPresent`, `UHF_IsOpen`, `UHF_IsConnected`
+- `UHF_GetLastError`, `UHF_GetLastErrorCode`
+
+Read / buffer:
+- `UHF_StartRead`, `UHF_StopRead`, `UHF_ClearBuffer`
+- `UHF_PeekBufferAll`, `UHF_PeekBufferDedup`
+- `UHF_PopBufferAll`, `UHF_PopBufferDedup`
+- `UHF_PopBufferAllSafe`, `UHF_PopBufferDedupSafe`
+- `UHF_PopBufferDedupFiltered`
+- `UHF_DedupWindowSet`, `UHF_DedupWindowReset`, `UHF_DedupKeySet`
+- `UHF_ReadOnce`
+- `UHF_ReadOnceCalibrated`, `UHF_ReadStreamCalibrated`
+
+Filters / power:
+- `UHF_RssiFilterSet`, `UHF_RssiFilterReset`
+- `UHF_GetPowerDbm`, `UHF_SetPowerDbm`
+- `UHF_GetPowerPct`, `UHF_SetPowerPct`
+
+Select / write / lock:
+- `UHF_SelectEpc`, `UHF_ClearSelect`
+- `UHF_ReadTag`, `UHF_WriteTag`
+- `UHF_WriteEpc`
+- `UHF_WriteEpcSelected`, `UHF_WriteTagSelected` (safe multi-tag write)
+- `UHF_LockTag`
+
+Calibration:
+- `UHF_CalibrationTagPrepare`
+- `UHF_CalibrateByTag`
+- `UHF_CalibrationApply`
+- `UHF_CalibrationGetCurrent`
+- `UHF_CalibrationSave`, `UHF_CalibrationLoad`
+
+I/O / misc:
+- `UHF_RelayOn`, `UHF_RelayOff`, `UHF_Relay2On`, `UHF_Relay2Off`
+- `UHF_Out1On`, `UHF_Out1Off`, `UHF_Out2On`, `UHF_Out2Off`
+- `UHF_WhitelistCount`, `UHF_WhitelistGetHex`, `UHF_WhitelistAddEpc`,
+  `UHF_WhitelistRemoveEpc`, `UHF_WhitelistClear`
+- `UHF_GetTransport`, `UHF_SetTransport`, `UHF_SetTransportUsb`, `UHF_EnsureUsbTransport`
+- `UHF_GetWorkMode`, `UHF_SetWorkModeAnswer`, `UHF_SetWorkModeActive`
+
+### Vendor 1:1 (re-export)
+
+All `SWHid_*` vendor functions are re-exported with identical names/signatures
+so you can call them without loading the vendor DLL directly. See
+`src/uhf_wrapper/UhfWrapper.def` and `src/uhf_wrapper/uhf_wrapper.h`.
+
+### Return Codes (common)
+
+```
+UHF_ERR_OK (0)
+UHF_ERR_INVALID_ARG (-2)
+UHF_ERR_VENDOR_MISSING (-3)
+UHF_ERR_VENDOR_CALL_FAILED (-4)
+UHF_ERR_NOT_SUPPORTED (-5)
+UHF_ERR_NOT_OPEN (-6)
+UHF_ERR_NOT_CONNECTED (-7)
+UHF_ERR_NO_DEVICE (-8)
+UHF_ERR_MULTI_TAG (-9)
+UHF_ERR_VERIFY_FAILED (-10)
+UHF_ERR_ALREADY_READING (-11)
+UHF_ERR_NOT_READING (-12)
+UHF_ERR_NO_TAG (-13)
+UHF_ERR_CALIBRATION_FAILED (-14)
+UHF_ERR_CALIBRATION_MISSING (-15)
+```
+
+## CLI Reference (Friendly)
+
+Use `UhfWrapperCli.exe --help` for the full command list and options.
+Outputs support `--json`, `--csv`, `--text`.
+
+Common commands:
+- `status`, `open`, `close`, `info`, `usbinfo`
+- `read-once`, `read-stream`, `read-count`
+- `read-once-calib`, `read-stream-calib`
+- `power-get`, `power-set`, `power-get-pct`, `power-set-pct`
+- `rssi-filter`, `rssi-reset`
+- `select-epc`, `select-clear`
+- `write-epc` (with `--target` and optional `--force`)
+- `calib-prepare`, `calib-run`
+- `whitelist-count`, `whitelist-add`, `whitelist-del`, `whitelist-clear`
 
 ## API Examples
 
@@ -176,8 +266,8 @@ IN53xx_workflow_DLL_x64/
 │   ├── uhf_wrapper.h
 │   ├── UhfWrapper.def
 │   └── uhf_cli.cpp
-├── docs/                   # user guide, agents notes
-├── vendor/                 # vendor SDK and DLLs
+├── docs/                   # internal notes (ignored in public repo)
+├── vendor/                 # vendor SDK and DLLs (ignored in public repo)
 ├── exemple/                # WinDev examples
 ├── build-x64/              # x64 build output
 ├── build-x86/              # x86 build output
