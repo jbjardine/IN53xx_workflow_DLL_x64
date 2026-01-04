@@ -604,6 +604,15 @@ static int dispatch_command(const char* cmd, int argc, char** argv, int argi, co
     UHF_DeviceInfo info{};
     int ok_info = UHF_GetInfo(&info);
     int ok_status = UHF_GetStatus(&st);
+    if ((t_direct < 0 || w_direct < 0 || p_direct < 0 || !has_f_direct) && UHF_EnsureUsbTransport()) {
+      t_direct = UHF_GetTransport();
+      w_direct = UHF_GetWorkMode();
+      p_direct = UHF_GetPowerDbm();
+      pct_direct = (p_direct >= 0) ? UHF_GetPowerPct() : -1;
+      has_f_direct = UHF_GetFreq(f_direct) ? 1 : 0;
+      if (UHF_GetStatus(&st)) ok_status = 1;
+      if (UHF_GetInfo(&info)) ok_info = 1;
+    }
     if (t_direct >= 0) st.transport = t_direct;
     if (w_direct >= 0) st.workMode = w_direct;
     if (p_direct >= 0) {
