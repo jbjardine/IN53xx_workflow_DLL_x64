@@ -576,7 +576,20 @@ static int ensure_transport_usb_opened(int allow_fix) {
   } else if (!allow_fix) {
     return 0;
   } else {
-    // Transport read not supported; assume USB and continue.
+    // Transport read not supported; try forcing USB anyway.
+    if (set_transport_param(kTransportUsb)) {
+      transport = 0xFF;
+      if (read_transport_param(&transport)) {
+        if (transport != kTransportUsb) {
+          char msg[128];
+          snprintf(msg, sizeof(msg),
+                   "Transport set to USB but readback is %u", transport);
+          set_last_error(msg, UHF_ERR_VERIFY_FAILED);
+          return 0;
+        }
+      }
+    }
+    // If we still can't read, assume USB and continue.
     set_last_error("", UHF_ERR_OK);
     return 1;
   }
