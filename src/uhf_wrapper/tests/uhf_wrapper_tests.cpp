@@ -38,11 +38,9 @@ int main() {
   }
 
   // Basic API sanity checks (should not crash, should return a value).
-  char info[256] = {0};
-  (void)UHF_GetInfo(info, sizeof(info));
+  UHF_DeviceInfo info{};
+  (void)UHF_GetInfo(&info);
   (void)UHF_GetPowerDbm();
-
-  // WorkMode getters should not crash even if unsupported.
   (void)UHF_GetWorkMode();
 
   all_ok &= expect_ok(UHF_Close() != 0, "UHF_Close");
