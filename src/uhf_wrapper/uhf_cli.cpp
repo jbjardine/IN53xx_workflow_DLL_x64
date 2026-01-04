@@ -62,6 +62,15 @@ static int split_line(const std::string& line, std::vector<std::string>& out) {
   return static_cast<int>(out.size());
 }
 
+static int g_shell_primed = 0;
+static int g_last_transport = -1;
+static int g_last_workmode = -1;
+static int g_last_power_dbm = -1;
+static int g_last_power_pct = -1;
+static uint8_t g_last_freq0 = 0;
+static uint8_t g_last_freq1 = 0;
+static int g_last_has_freq = 0;
+
 static void usage() {
   printf("UhfWrapper CLI\n");
   printf("Usage: uhf_cli [options] <cmd> [args]\n\n");
@@ -545,6 +554,8 @@ static int dispatch_command(const char* cmd, int argc, char** argv, int argi, co
     if (!ok) {
       printf("Error: %s\n", UHF_GetLastError());
       exit_code = 1;
+    } else if (keep_open) {
+      g_shell_primed = 0;
     }
     handled = 1;
   } else if (strcmp(cmd, "close") == 0) {
@@ -553,6 +564,8 @@ static int dispatch_command(const char* cmd, int argc, char** argv, int argi, co
     if (!ok) {
       printf("Error: %s\n", UHF_GetLastError());
       exit_code = 1;
+    } else if (keep_open) {
+      g_shell_primed = 0;
     }
     handled = 1;
   } else if (strcmp(cmd, "info") == 0 || strcmp(cmd, "start") == 0 ||
@@ -588,6 +601,19 @@ static int dispatch_command(const char* cmd, int argc, char** argv, int argi, co
       printf("Open failed: %s\n", UHF_GetLastError());
       return 1;
     }
+    if (keep_open) {
+      g_shell_primed = 0;
+    }
+  }
+
+  if (keep_open && needs_open && UHF_IsOpen() && !g_shell_primed) {
+    UHF_SetWorkModeActive();
+    int ok = UHF_StartRead();
+    if (ok) {
+      sleep_ms(50);
+      UHF_StopRead();
+      g_shell_primed = 1;
+    }
   }
 
   if (handled) {
@@ -612,6 +638,55 @@ static int dispatch_command(const char* cmd, int argc, char** argv, int argi, co
       has_f_direct = UHF_GetFreq(f_direct) ? 1 : 0;
       if (UHF_GetStatus(&st)) ok_status = 1;
       if (UHF_GetInfo(&info)) ok_info = 1;
+    }
+    if ((t_direct < 0 || w_direct < 0 || p_direct < 0 || !has_f_direct) && keep_open) {
+      UHF_SetWorkModeActive();
+      int ok_prime = UHF_StartRead();
+      if (ok_prime) {
+        sleep_ms(50);
+        UHF_StopRead();
+        t_direct = UHF_GetTransport();
+        w_direct = UHF_GetWorkMode();
+        p_direct = UHF_GetPowerDbm();
+        pct_direct = (p_direct >= 0) ? UHF_GetPowerPct() : -1;
+        has_f_direct = UHF_GetFreq(f_direct) ? 1 : 0;
+        if (UHF_GetStatus(&st)) ok_status = 1;
+        if (UHF_GetInfo(&info)) ok_info = 1;
+      }
+    }
+    if ((t_direct < 0 || w_direct < 0 || p_direct < 0 || !has_f_direct) && keep_open) {
+      UHF_Close();
+      if (UHF_Open((unsigned short)opt.index)) {
+        UHF_SetWorkModeActive();
+        t_direct = UHF_GetTransport();
+        w_direct = UHF_GetWorkMode();
+        p_direct = UHF_GetPowerDbm();
+        pct_direct = (p_direct >= 0) ? UHF_GetPowerPct() : -1;
+        has_f_direct = UHF_GetFreq(f_direct) ? 1 : 0;
+        if (UHF_GetStatus(&st)) ok_status = 1;
+        if (UHF_GetInfo(&info)) ok_info = 1;
+        g_shell_primed = 0;
+      }
+    }
+    if (t_direct >= 0) g_last_transport = t_direct;
+    else if (g_last_transport >= 0) t_direct = g_last_transport;
+    if (w_direct >= 0) g_last_workmode = w_direct;
+    else if (g_last_workmode >= 0) w_direct = g_last_workmode;
+    if (p_direct >= 0) {
+      g_last_power_dbm = p_direct;
+      g_last_power_pct = pct_direct;
+    } else if (g_last_power_dbm >= 0) {
+      p_direct = g_last_power_dbm;
+      pct_direct = g_last_power_pct;
+    }
+    if (has_f_direct) {
+      g_last_freq0 = f_direct[0];
+      g_last_freq1 = f_direct[1];
+      g_last_has_freq = 1;
+    } else if (g_last_has_freq) {
+      f_direct[0] = g_last_freq0;
+      f_direct[1] = g_last_freq1;
+      has_f_direct = 1;
     }
     if (t_direct >= 0) st.transport = t_direct;
     if (w_direct >= 0) st.workMode = w_direct;
@@ -783,6 +858,7 @@ static int dispatch_command(const char* cmd, int argc, char** argv, int argi, co
       }
       if (printed == 0) exit_code = 2;
     }
+    if (keep_open) g_shell_primed = 0;
   } else if (strcmp(cmd, "read-once-calib") == 0) {
     UHF_Tag tags[256];
     int count = 0;
@@ -811,6 +887,7 @@ static int dispatch_command(const char* cmd, int argc, char** argv, int argi, co
       }
       if (printed == 0) exit_code = 2;
     }
+    if (keep_open) g_shell_primed = 0;
   } else if (strcmp(cmd, "read-count") == 0) {
     if (argi >= argc) {
       printf("Missing count\n");
@@ -857,6 +934,7 @@ static int dispatch_command(const char* cmd, int argc, char** argv, int argi, co
         if (printed == 0) exit_code = 2;
       }
     }
+    if (keep_open) g_shell_primed = 0;
   } else if (strcmp(cmd, "read-stream") == 0) {
     int ok = UHF_StartRead();
     if (!ok) {
@@ -895,6 +973,7 @@ static int dispatch_command(const char* cmd, int argc, char** argv, int argi, co
         printf("Streaming ended.\n");
       }
     }
+    if (keep_open) g_shell_primed = 0;
   } else if (strcmp(cmd, "read-stream-calib") == 0) {
     int dur = opt.duration_ms > 0 ? opt.duration_ms : 10000;
     UHF_Tag tags[512];
@@ -923,6 +1002,7 @@ static int dispatch_command(const char* cmd, int argc, char** argv, int argi, co
       }
       if (printed == 0) exit_code = 2;
     }
+    if (keep_open) g_shell_primed = 0;
   } else if (strcmp(cmd, "buffer-test") == 0) {
     int ok = UHF_StartRead();
     if (!ok) {
@@ -953,6 +1033,7 @@ static int dispatch_command(const char* cmd, int argc, char** argv, int argi, co
         printf("Pop buffer failed: %s\n", UHF_GetLastError());
       }
     }
+    if (keep_open) g_shell_primed = 0;
   } else if (strcmp(cmd, "power-get") == 0) {
     int dbm = UHF_GetPowerDbm();
     if (opt.friendly) print_friendly_int("Power (dBm)", dbm);
@@ -1708,6 +1789,13 @@ int main(int argc, char** argv) {
     printf("UhfWrapper shell (type 'help' or 'exit')\n");
     if (!UHF_Open((unsigned short)opt.index)) {
       printf("Open failed: %s\n", UHF_GetLastError());
+    } else {
+      UHF_SetWorkModeActive();
+      if (UHF_StartRead()) {
+        sleep_ms(50);
+        UHF_StopRead();
+        g_shell_primed = 1;
+      }
     }
     std::string line;
     while (1) {
