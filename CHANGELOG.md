@@ -8,11 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+### Changed
+
+### Fixed
+
+## [0.1.0] - 2026-01-04
+
+### Added
 - Add project memory system in `docs/project_notes/` with ADRs, bug log, key facts, and work log.
 - Add `CLAUDE.md` and update `docs/AGENTS.md` to keep memory protocols consistent.
 - Add WorkMode helper APIs and automatic Answer/Active switching for user-friendly `UHF_*` calls.
 - Add calibration persistence and calibrated read APIs + CLI commands.
 - Add Transport helpers (`UHF_GetTransport`, `UHF_SetTransport`, `UHF_SetTransportUsb`, `UHF_EnsureUsbTransport`).
+ - Add public API/CLI documentation (`API.md`, `CLI.md`) and expand README.
+ - Add `UHF_GetStatus` with enriched CLI `info` output (power, transport, workmode, freq region).
 
 ### Changed
 - Update documentation references to include the new changelog and memory notes.
@@ -21,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Calibration now rejects duplicate calibration EPCs when multiple TIDs are detected.
 - Calibration skips duplicate check if the reader ignores mask select (best-effort).
 - User-friendly calls now enforce Transport=USB when possible (auto-fix).
+ - Improve CLI `info` output to be user-friendly when RSSI filter is disabled.
 
 ### Fixed
 - Parse Answer-mode tag frames even when the vendor buffer reports zero tags.
