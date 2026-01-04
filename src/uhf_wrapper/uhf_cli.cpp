@@ -739,7 +739,7 @@ int main(int argc, char** argv) {
                "\"transport\":%d,\"transportName\":\"%s\","
                "\"workMode\":%d,\"workModeName\":\"%s\","
                "\"powerDbm\":%d,\"powerPct\":%d,"
-               "\"freq0\":%u,\"freq1\":%u,\"hasFreq\":%d,"
+               "\"freq0\":%u,\"freq1\":%u,\"hasFreq\":%d,\"freqRegion\":\"%s\","
                "\"rssiFilterEnabled\":%d,\"rssiMinDbm\":%d,\"rssiMaxDbm\":%d,"
                "\"dedupWindowMs\":%d,\"dedupKeyMode\":%d,"
                "\"swMajor\":%u,\"swMinor\":%u,\"hwMajor\":%u,\"hwMinor\":%u,"
@@ -748,21 +748,21 @@ int main(int argc, char** argv) {
                st.transport, transport_name(st.transport),
                st.workMode, workmode_name(st.workMode),
                st.powerDbm, st.powerPct,
-               st.freq0, st.freq1, st.hasFreq,
+               st.freq0, st.freq1, st.hasFreq, st.hasFreq ? freq_region_name(st.freq0, st.freq1) : "Unknown",
                st.rssiFilterEnabled, st.rssiFilterMinDbm, st.rssiFilterMaxDbm,
                st.dedupWindowMs, st.dedupKeyMode,
                info.softMajor, info.softMinor, info.hardMajor, info.hardMinor, info.sn);
       } else if (opt.out == OUT_CSV) {
         printf("present,open,connected,transport,transportName,workMode,workModeName,"
-               "powerDbm,powerPct,freq0,freq1,hasFreq,"
+               "powerDbm,powerPct,freq0,freq1,hasFreq,freqRegion,"
                "rssiFilterEnabled,rssiMinDbm,rssiMaxDbm,dedupWindowMs,dedupKeyMode,"
                "swMajor,swMinor,hwMajor,hwMinor,sn\n");
-        printf("%d,%d,%d,%d,%s,%d,%s,%d,%d,%u,%u,%d,%d,%d,%d,%d,%d,%u,%u,%u,%u,%s\n",
+        printf("%d,%d,%d,%d,%s,%d,%s,%d,%d,%u,%u,%d,%s,%d,%d,%d,%d,%d,%u,%u,%u,%u,%s\n",
                st.present, st.open, st.connected,
                st.transport, transport_name(st.transport),
                st.workMode, workmode_name(st.workMode),
                st.powerDbm, st.powerPct,
-               st.freq0, st.freq1, st.hasFreq,
+               st.freq0, st.freq1, st.hasFreq, st.hasFreq ? freq_region_name(st.freq0, st.freq1) : "Unknown",
                st.rssiFilterEnabled, st.rssiFilterMinDbm, st.rssiFilterMaxDbm,
                st.dedupWindowMs, st.dedupKeyMode,
                info.softMajor, info.softMinor, info.hardMajor, info.hardMinor, info.sn);
