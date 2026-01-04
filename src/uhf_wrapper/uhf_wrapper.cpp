@@ -2087,9 +2087,11 @@ UHF_API int UHF_CALL UHF_ReadOnce(int timeoutMs, UHF_Tag* outTags, int maxTags, 
     return 0;
   }
 #if defined(_WIN64)
-  if (read_once_via_helper(timeoutMs, outTags, maxTags, outCount)) {
-    set_last_error("", UHF_ERR_OK);
-    return 1;
+  if (!UHF_IsOpen()) {
+    if (read_once_via_helper(timeoutMs, outTags, maxTags, outCount)) {
+      set_last_error("", UHF_ERR_OK);
+      return 1;
+    }
   }
 #endif
   if (timeoutMs < 0) timeoutMs = 0;
