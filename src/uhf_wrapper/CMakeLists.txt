@@ -47,3 +47,11 @@ endif()
 
 add_executable(UhfWrapperCli uhf_cli.cpp)
 target_link_libraries(UhfWrapperCli PRIVATE UhfWrapper)
+
+option(UHF_BUILD_TESTS "Build unit tests" OFF)
+if (UHF_BUILD_TESTS)
+  enable_testing()
+  add_executable(UhfWrapperTests tests/uhf_wrapper_tests.cpp)
+  target_link_libraries(UhfWrapperTests PRIVATE UhfWrapper)
+  add_test(NAME UhfWrapperTests COMMAND UhfWrapperTests)
+endif()

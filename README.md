@@ -160,6 +160,13 @@ UHF_EnsureUsbTransport(); // verify + switch to USB if possible
 
 If the device is in Weigand (WG26/WG34), switch back to USB via ReaderSoft or helper.
 
+## Known Limitations / Notes
+
+- Some firmwares return 0 tags in Answer/InventoryG2; user-friendly reads fall back to Active + buffer.
+- Calibration uses software EPC filtering (no hardware mask) to avoid `SetPowerDbm` failures on some devices.
+- Trigger mode is not supported by the current vendor firmware/EXE.
+- If a vendor call is missing in x64, the wrapper returns a clear “x86 required” error for parity.
+
 ## Project Structure
 
 ```
@@ -175,6 +182,16 @@ IN53xx_workflow_DLL_x64/
 ├── build-x64/              # x64 build output
 ├── build-x86/              # x86 build output
 └── README.md
+```
+
+## Tests (optional)
+
+Unit tests are lightweight and skip if no reader is connected:
+
+```powershell
+cmake -S src/uhf_wrapper -B build-x64 -A x64 -DUHF_BUILD_TESTS=ON
+cmake --build build-x64 --config Release
+ctest --test-dir build-x64 -C Release
 ```
 
 ## License
