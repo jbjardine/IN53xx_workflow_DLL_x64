@@ -43,6 +43,8 @@ Calibration options:
 - `usbinfo` : list USB HID devices
 - `open` / `close`
 - `info` : extended status (transport, power, freq) + firmware/hardware info
+
+`info` JSON/CSV includes `freqRegion` (e.g., `EU`, `US`).
 - `config-check` : system config diagnostics
 
 ## Read Commands
