@@ -6,6 +6,10 @@
 #include <ctype.h>
 #include <chrono>
 #include <thread>
+#include <iostream>
+#include <string>
+#include <vector>
+#include <sstream>
 
 enum OutputFormat {
   OUT_TEXT = 0,
@@ -48,6 +52,16 @@ struct CliOptions {
   int rssi_set_reset = 0;
 };
 
+static int split_line(const std::string& line, std::vector<std::string>& out) {
+  out.clear();
+  std::istringstream iss(line);
+  std::string tok;
+  while (iss >> tok) {
+    out.push_back(tok);
+  }
+  return static_cast<int>(out.size());
+}
+
 static void usage() {
   printf("UhfWrapper CLI\n");
   printf("Usage: uhf_cli [options] <cmd> [args]\n\n");
@@ -88,6 +102,7 @@ static void usage() {
   printf("  open\n");
   printf("  close\n");
   printf("  info\n");
+  printf("  shell            (persistent session)\n");
   printf("  start\n");
   printf("  stop\n");
   printf("  buffer-clear\n");
@@ -449,139 +464,7 @@ static int count_tags_once_cli(int timeout_ms, int* out_count) {
   return 1;
 }
 
-int main(int argc, char** argv) {
-  if (argc < 2) {
-    usage();
-    return 1;
-  }
-
-  CliOptions opt;
-  int argi = 1;
-  while (argi < argc) {
-    const char* a = argv[argi];
-    if (strcmp(a, "-i") == 0 && argi + 1 < argc) {
-      opt.index = atoi(argv[++argi]);
-      ++argi;
-    } else if (strcmp(a, "--json") == 0) {
-      opt.out = OUT_JSON;
-      ++argi;
-    } else if (strcmp(a, "--csv") == 0) {
-      opt.out = OUT_CSV;
-      ++argi;
-    } else if (strcmp(a, "--text") == 0) {
-      opt.out = OUT_TEXT;
-      ++argi;
-    } else if (strcmp(a, "--compact") == 0) {
-      opt.compact = 1;
-      ++argi;
-    } else if (strcmp(a, "--friendly") == 0) {
-      opt.friendly = 1;
-      ++argi;
-    } else if (strcmp(a, "--timeout") == 0 && argi + 1 < argc) {
-      opt.timeout_ms = atoi(argv[++argi]);
-      ++argi;
-    } else if (strcmp(a, "--interval") == 0 && argi + 1 < argc) {
-      opt.interval_ms = atoi(argv[++argi]);
-      ++argi;
-    } else if (strcmp(a, "--duration") == 0 && argi + 1 < argc) {
-      opt.duration_ms = atoi(argv[++argi]);
-      ++argi;
-    } else if (strcmp(a, "--dedup") == 0) {
-      opt.dedup = 1;
-      ++argi;
-    } else if (strcmp(a, "--all") == 0) {
-      opt.dedup = 0;
-      ++argi;
-    } else if (strcmp(a, "--safe") == 0) {
-      opt.safe = 1;
-      ++argi;
-    } else if (strcmp(a, "--min-rssi") == 0 && argi + 1 < argc) {
-      opt.min_rssi = atoi(argv[++argi]);
-      ++argi;
-    } else if (strcmp(a, "--epc-prefix") == 0 && argi + 1 < argc) {
-      opt.epc_prefix_len = normalize_hex(argv[++argi], opt.epc_prefix, sizeof(opt.epc_prefix));
-      if (opt.epc_prefix_len < 0) {
-        printf("Invalid EPC prefix\n");
-        return 1;
-      }
-      ++argi;
-    } else if (strcmp(a, "--antenna") == 0 && argi + 1 < argc) {
-      opt.antenna = atoi(argv[++argi]);
-      ++argi;
-    } else if (strcmp(a, "--target") == 0 && argi + 1 < argc) {
-      opt.target_epc_len = normalize_hex(argv[++argi], opt.target_epc, sizeof(opt.target_epc));
-      if (opt.target_epc_len <= 0 || (opt.target_epc_len % 2) != 0) {
-        printf("Invalid target EPC\n");
-        return 1;
-      }
-      ++argi;
-    } else if (strcmp(a, "--force") == 0) {
-      opt.force_multi = 1;
-      ++argi;
-    } else if (strcmp(a, "--calib-epc") == 0 && argi + 1 < argc) {
-      opt.calib_epc_len = normalize_hex(argv[++argi], opt.calib_epc, sizeof(opt.calib_epc));
-      if (opt.calib_epc_len <= 0 || (opt.calib_epc_len % 2) != 0) {
-        printf("Invalid calibration EPC\n");
-        return 1;
-      }
-      ++argi;
-    } else if (strcmp(a, "--calib-min") == 0 && argi + 1 < argc) {
-      opt.calib_min = atoi(argv[++argi]);
-      ++argi;
-    } else if (strcmp(a, "--calib-max") == 0 && argi + 1 < argc) {
-      opt.calib_max = atoi(argv[++argi]);
-      ++argi;
-    } else if (strcmp(a, "--calib-step") == 0 && argi + 1 < argc) {
-      opt.calib_step = atoi(argv[++argi]);
-      ++argi;
-    } else if (strcmp(a, "--calib-reads") == 0 && argi + 1 < argc) {
-      opt.calib_reads = atoi(argv[++argi]);
-      ++argi;
-    } else if (strcmp(a, "--calib-pwr-margin") == 0 && argi + 1 < argc) {
-      opt.calib_pwr_margin = atoi(argv[++argi]);
-      ++argi;
-    } else if (strcmp(a, "--calib-rssi-margin") == 0 && argi + 1 < argc) {
-      opt.calib_rssi_margin = atoi(argv[++argi]);
-      ++argi;
-    } else if (strcmp(a, "--calib-capture") == 0 && argi + 1 < argc) {
-      opt.calib_capture = atoi(argv[++argi]);
-      ++argi;
-    } else if (strcmp(a, "--apply") == 0) {
-      opt.calib_apply = 1;
-      ++argi;
-    } else if (strcmp(a, "--keep") == 0) {
-      opt.calib_keep = 1;
-      ++argi;
-    } else if (strcmp(a, "--rssi-min") == 0 && argi + 1 < argc) {
-      opt.rssi_set_min = atoi(argv[++argi]);
-      opt.rssi_set_has_min = 1;
-      ++argi;
-    } else if (strcmp(a, "--rssi-max") == 0 && argi + 1 < argc) {
-      opt.rssi_set_max = atoi(argv[++argi]);
-      opt.rssi_set_has_max = 1;
-      ++argi;
-    } else if (strcmp(a, "--rssi-reset") == 0) {
-      opt.rssi_set_reset = 1;
-      ++argi;
-    } else if (strcmp(a, "--help") == 0 || strcmp(a, "-h") == 0) {
-      usage();
-      return 0;
-    } else {
-      break;
-    }
-  }
-
-  if (argi >= argc) {
-    usage();
-    return 1;
-  }
-
-  if (!UHF_Init()) {
-    printf("Init failed: %s\n", UHF_GetLastError());
-    return 1;
-  }
-
-  const char* cmd = argv[argi++];
+static int dispatch_command(const char* cmd, int argc, char** argv, int argi, const CliOptions& opt, int keep_open) {
   int needs_open = 0;
   int exit_code = 0;
   int handled = 0;
@@ -700,10 +583,9 @@ int main(int argc, char** argv) {
     needs_open = 1;
   }
 
-  if (needs_open) {
+  if (needs_open && !UHF_IsOpen()) {
     if (!UHF_Open((unsigned short)opt.index)) {
       printf("Open failed: %s\n", UHF_GetLastError());
-      UHF_Shutdown();
       return 1;
     }
   }
@@ -1469,7 +1351,6 @@ write_done:
       if (opt.calib_apply && !UHF_IsOpen()) {
         if (!UHF_Open((unsigned short)opt.index)) {
           printf("Open failed: %s\n", UHF_GetLastError());
-          UHF_Shutdown();
           return 1;
         }
       }
@@ -1674,9 +1555,177 @@ write_done:
     exit_code = 1;
   }
 
-  if (needs_open) {
-    UHF_Close();
+
+  if (needs_open && !keep_open) {
+    if (UHF_IsOpen()) UHF_Close();
   }
+  return exit_code;
+}
+
+int main(int argc, char** argv) {
+  if (argc < 2) {
+    usage();
+    return 1;
+  }
+
+  CliOptions opt;
+  int argi = 1;
+  while (argi < argc) {
+    const char* a = argv[argi];
+    if (strcmp(a, "-i") == 0 && argi + 1 < argc) {
+      opt.index = atoi(argv[++argi]);
+      ++argi;
+    } else if (strcmp(a, "--json") == 0) {
+      opt.out = OUT_JSON;
+      ++argi;
+    } else if (strcmp(a, "--csv") == 0) {
+      opt.out = OUT_CSV;
+      ++argi;
+    } else if (strcmp(a, "--text") == 0) {
+      opt.out = OUT_TEXT;
+      ++argi;
+    } else if (strcmp(a, "--compact") == 0) {
+      opt.compact = 1;
+      ++argi;
+    } else if (strcmp(a, "--friendly") == 0) {
+      opt.friendly = 1;
+      ++argi;
+    } else if (strcmp(a, "--timeout") == 0 && argi + 1 < argc) {
+      opt.timeout_ms = atoi(argv[++argi]);
+      ++argi;
+    } else if (strcmp(a, "--interval") == 0 && argi + 1 < argc) {
+      opt.interval_ms = atoi(argv[++argi]);
+      ++argi;
+    } else if (strcmp(a, "--duration") == 0 && argi + 1 < argc) {
+      opt.duration_ms = atoi(argv[++argi]);
+      ++argi;
+    } else if (strcmp(a, "--dedup") == 0) {
+      opt.dedup = 1;
+      ++argi;
+    } else if (strcmp(a, "--all") == 0) {
+      opt.dedup = 0;
+      ++argi;
+    } else if (strcmp(a, "--safe") == 0) {
+      opt.safe = 1;
+      ++argi;
+    } else if (strcmp(a, "--min-rssi") == 0 && argi + 1 < argc) {
+      opt.min_rssi = atoi(argv[++argi]);
+      ++argi;
+    } else if (strcmp(a, "--epc-prefix") == 0 && argi + 1 < argc) {
+      opt.epc_prefix_len = normalize_hex(argv[++argi], opt.epc_prefix, sizeof(opt.epc_prefix));
+      if (opt.epc_prefix_len < 0) {
+        printf("Invalid EPC prefix\n");
+        return 1;
+      }
+      ++argi;
+    } else if (strcmp(a, "--antenna") == 0 && argi + 1 < argc) {
+      opt.antenna = atoi(argv[++argi]);
+      ++argi;
+    } else if (strcmp(a, "--target") == 0 && argi + 1 < argc) {
+      opt.target_epc_len = normalize_hex(argv[++argi], opt.target_epc, sizeof(opt.target_epc));
+      if (opt.target_epc_len <= 0 || (opt.target_epc_len % 2) != 0) {
+        printf("Invalid target EPC\n");
+        return 1;
+      }
+      ++argi;
+    } else if (strcmp(a, "--force") == 0) {
+      opt.force_multi = 1;
+      ++argi;
+    } else if (strcmp(a, "--calib-epc") == 0 && argi + 1 < argc) {
+      opt.calib_epc_len = normalize_hex(argv[++argi], opt.calib_epc, sizeof(opt.calib_epc));
+      if (opt.calib_epc_len <= 0 || (opt.calib_epc_len % 2) != 0) {
+        printf("Invalid calibration EPC\n");
+        return 1;
+      }
+      ++argi;
+    } else if (strcmp(a, "--calib-min") == 0 && argi + 1 < argc) {
+      opt.calib_min = atoi(argv[++argi]);
+      ++argi;
+    } else if (strcmp(a, "--calib-max") == 0 && argi + 1 < argc) {
+      opt.calib_max = atoi(argv[++argi]);
+      ++argi;
+    } else if (strcmp(a, "--calib-step") == 0 && argi + 1 < argc) {
+      opt.calib_step = atoi(argv[++argi]);
+      ++argi;
+    } else if (strcmp(a, "--calib-reads") == 0 && argi + 1 < argc) {
+      opt.calib_reads = atoi(argv[++argi]);
+      ++argi;
+    } else if (strcmp(a, "--calib-pwr-margin") == 0 && argi + 1 < argc) {
+      opt.calib_pwr_margin = atoi(argv[++argi]);
+      ++argi;
+    } else if (strcmp(a, "--calib-rssi-margin") == 0 && argi + 1 < argc) {
+      opt.calib_rssi_margin = atoi(argv[++argi]);
+      ++argi;
+    } else if (strcmp(a, "--calib-capture") == 0 && argi + 1 < argc) {
+      opt.calib_capture = atoi(argv[++argi]);
+      ++argi;
+    } else if (strcmp(a, "--apply") == 0) {
+      opt.calib_apply = 1;
+      ++argi;
+    } else if (strcmp(a, "--keep") == 0) {
+      opt.calib_keep = 1;
+      ++argi;
+    } else if (strcmp(a, "--rssi-min") == 0 && argi + 1 < argc) {
+      opt.rssi_set_min = atoi(argv[++argi]);
+      opt.rssi_set_has_min = 1;
+      ++argi;
+    } else if (strcmp(a, "--rssi-max") == 0 && argi + 1 < argc) {
+      opt.rssi_set_max = atoi(argv[++argi]);
+      opt.rssi_set_has_max = 1;
+      ++argi;
+    } else if (strcmp(a, "--rssi-reset") == 0) {
+      opt.rssi_set_reset = 1;
+      ++argi;
+    } else if (strcmp(a, "--help") == 0 || strcmp(a, "-h") == 0) {
+      usage();
+      return 0;
+    } else {
+      break;
+    }
+  }
+
+  if (argi >= argc) {
+    usage();
+    return 1;
+  }
+
+  if (!UHF_Init()) {
+    printf("Init failed: %s\n", UHF_GetLastError());
+    return 1;
+  }
+
+  const char* cmd = argv[argi++];
+  if (strcmp(cmd, "shell") == 0) {
+    printf("UhfWrapper shell (type 'help' or 'exit')\n");
+    if (!UHF_Open((unsigned short)opt.index)) {
+      printf("Open failed: %s\n", UHF_GetLastError());
+    }
+    std::string line;
+    while (1) {
+      printf("uhf> ");
+      fflush(stdout);
+      if (!std::getline(std::cin, line)) break;
+      if (line.empty()) continue;
+      std::vector<std::string> parts;
+      if (!split_line(line, parts)) continue;
+      const std::string& scmd = parts[0];
+      if (scmd == "exit" || scmd == "quit") break;
+      if (scmd == "help") {
+        usage();
+        continue;
+      }
+      std::vector<const char*> sargv;
+      sargv.reserve(parts.size() + 1);
+      sargv.push_back("shell");
+      for (const auto& p : parts) sargv.push_back(p.c_str());
+      (void)dispatch_command(sargv[1], (int)sargv.size(), (char**)sargv.data(), 2, opt, 1);
+    }
+    if (UHF_IsOpen()) UHF_Close();
+    UHF_Shutdown();
+    return 0;
+  }
+
+  int exit_code = dispatch_command(cmd, argc, argv, argi, opt, 0);
   UHF_Shutdown();
   return exit_code;
 }

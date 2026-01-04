@@ -10,6 +10,11 @@ text/JSON/CSV outputs.
 UhfWrapperCli.exe [options] <command> [args]
 ```
 
+Shell mode (persistent session):
+```
+UhfWrapperCli.exe shell
+```
+
 Common options:
 - `--friendly` : use the high-level friendly workflow calls
 - `--json` / `--csv` / `--text` : output format
@@ -42,6 +47,7 @@ Calibration options:
 - `status` : reader present / open / connected
 - `usbinfo` : list USB HID devices
 - `open` / `close`
+- `shell` : interactive session that keeps the device open (type `help` or `exit`)
 - `info` : extended status (transport, power, freq) + firmware/hardware info
 
 `info` JSON/CSV includes `freqRegion` (e.g., `EU`, `US`).
