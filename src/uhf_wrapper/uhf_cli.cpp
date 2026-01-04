@@ -780,9 +780,14 @@ int main(int argc, char** argv) {
         if (st.hasFreq) {
           printf("freq=0x%02X 0x%02X\n", st.freq0, st.freq1);
         }
-        printf("rssiFilter=%d rssiMin=%d rssiMax=%d dedupWindowMs=%d dedupKeyMode=%d\n",
-               st.rssiFilterEnabled, st.rssiFilterMinDbm, st.rssiFilterMaxDbm,
-               st.dedupWindowMs, st.dedupKeyMode);
+        if (st.rssiFilterEnabled) {
+          printf("rssiFilter=enabled rssiMin=%d rssiMax=%d dedupWindowMs=%d dedupKeyMode=%d\n",
+                 st.rssiFilterMinDbm, st.rssiFilterMaxDbm,
+                 st.dedupWindowMs, st.dedupKeyMode);
+        } else {
+          printf("rssiFilter=disabled dedupWindowMs=%d dedupKeyMode=%d\n",
+                 st.dedupWindowMs, st.dedupKeyMode);
+        }
         if (ok_info) {
           printf("SW v%u.%u HW v%u.%u SN=%s\n",
                  info.softMajor, info.softMinor, info.hardMajor, info.hardMinor, info.sn);
