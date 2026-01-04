@@ -83,6 +83,8 @@ UhfWrapperCli.exe --friendly --target <EPC_ACTUEL> write-epc <NEW_EPC_HEX> 00000
 UhfWrapperCli.exe --friendly --target <EPC_ACTUEL> --force write-epc <NEW_EPC_HEX> 00000000
 ```
 
+Note: `info` JSON/CSV includes `freqRegion` (e.g., `EU`, `US`).
+
 ## API Reference (Friendly `UHF_*`)
 
 The public, stable surface is the `UHF_*` API (same for x64/x86). For exact
