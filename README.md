@@ -66,6 +66,7 @@ Outputs (Release):
 
 - API reference: `API.md`
 - CLI reference: `CLI.md`
+- Changelog: `CHANGELOG.md`
 
 ## CLI Examples
 

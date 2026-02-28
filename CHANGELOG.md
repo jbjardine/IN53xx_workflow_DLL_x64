@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Tags / Releases
+
+Every versioned section below maps 1:1 to a Git tag named `vX.Y.Z`.
+When a GitHub Release exists, it uses the same tag.
+On tags where the CI workflow is active, release binaries are generated from CI.
+
+Current tag/release map:
+- `v0.1.2` (2026-02-28): [tag][tag-v0.1.2] + [release][release-v0.1.2] + CI assets (`UhfWrapper-x64.zip`, `UhfWrapper-x86.zip`)
+- `v0.1.1` (2026-02-28): [tag][tag-v0.1.1] + [release][release-v0.1.1] (no binary assets attached)
+- `v0.1.0` (2026-01-04): [tag][tag-v0.1.0] only (no GitHub Release)
+
 ## [Unreleased]
 
 ### Added
@@ -59,3 +70,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Parse Answer-mode tag frames even when the vendor buffer reports zero tags.
+
+[Unreleased]: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/releases/tag/v0.1.2
+[0.1.1]: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/releases/tag/v0.1.1
+[0.1.0]: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/tree/v0.1.0
+
+[tag-v0.1.2]: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/tree/v0.1.2
+[release-v0.1.2]: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/releases/tag/v0.1.2
+[tag-v0.1.1]: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/tree/v0.1.1
+[release-v0.1.1]: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/releases/tag/v0.1.1
+[tag-v0.1.0]: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/tree/v0.1.0

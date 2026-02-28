@@ -1609,6 +1609,11 @@ UHF_API int UHF_CALL UHF_Close(void) {
 }
 
 UHF_API int UHF_CALL UHF_IsReaderPresent(void) {
+  // Some vendor stacks disturb the opened handle when querying USB list.
+  // If we already have an open handle, treat presence as true.
+  if (UHF_IsOpen()) {
+    return 1;
+  }
   int count = UHF_GetUsbCount();
   return count > 0 ? 1 : 0;
 }
@@ -1618,7 +1623,11 @@ UHF_API int UHF_CALL UHF_IsOpen(void) {
 }
 
 UHF_API int UHF_CALL UHF_IsConnected(void) {
-  return (UHF_IsReaderPresent() && UHF_IsOpen()) ? 1 : 0;
+  // Avoid USB re-enumeration side effects while handle is open.
+  if (UHF_IsOpen()) {
+    return 1;
+  }
+  return UHF_IsReaderPresent();
 }
 
 UHF_API int UHF_CALL UHF_GetInfo(UHF_DeviceInfo* outInfo) {
@@ -1664,9 +1673,9 @@ UHF_API int UHF_CALL UHF_GetStatus(UHF_Status* outStatus) {
     return 0;
   }
   memset(outStatus, 0, sizeof(*outStatus));
-  outStatus->present = UHF_IsReaderPresent();
   outStatus->open = UHF_IsOpen();
-  outStatus->connected = UHF_IsConnected();
+  outStatus->present = outStatus->open ? 1 : UHF_IsReaderPresent();
+  outStatus->connected = outStatus->open ? 1 : UHF_IsConnected();
   outStatus->powerDbm = -1;
   outStatus->powerPct = -1;
   outStatus->transport = -1;
