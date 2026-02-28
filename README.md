@@ -304,6 +304,15 @@ cmake --build build-x64 --config Release
 ctest --test-dir build-x64 -C Release
 ```
 
+## CI / Release Artifacts
+
+- GitHub Actions builds x64 + x86 on `push`/`PR` and for tags `v*`.
+- On tag builds, the workflow uploads release assets:
+  - `UhfWrapper-x64.zip`
+  - `UhfWrapper-x86.zip`
+- CI builds use minimal exports (`UHF_*` only) so they do not require vendor `.lib` files.
+- Runtime still requires providing the vendor `SWHidApi.dll`.
+
 ## License
 
 MIT. See `LICENSE`.

@@ -1,0 +1,86 @@
+name: Build And Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            cmake_arch: x64
+          - arch: x86
+            cmake_arch: Win32
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure (${{ matrix.arch }})
+        run: >
+          cmake -S src/uhf_wrapper -B build-${{ matrix.arch }}
+          -G "Visual Studio 17 2022"
+          -A ${{ matrix.cmake_arch }}
+          -DUHF_MINIMAL_EXPORTS_ONLY=ON
+
+      - name: Build (${{ matrix.arch }})
+        run: cmake --build build-${{ matrix.arch }} --config Release
+
+      - name: Smoke Test CLI (${{ matrix.arch }})
+        shell: pwsh
+        run: |
+          & ".\build-${{ matrix.arch }}\Release\UhfWrapperCli.exe" --help | Out-Null
+
+      - name: Package (${{ matrix.arch }})
+        shell: pwsh
+        run: |
+          $outDir = "dist/${{ matrix.arch }}"
+          New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+          Copy-Item "build-${{ matrix.arch }}/Release/UhfWrapper.dll" "$outDir/" -Force
+          Copy-Item "build-${{ matrix.arch }}/Release/UhfWrapperCli.exe" "$outDir/" -Force
+          if (Test-Path "build-${{ matrix.arch }}/Release/SWHidApi.dll") {
+            Copy-Item "build-${{ matrix.arch }}/Release/SWHidApi.dll" "$outDir/" -Force
+          }
+          Copy-Item "README.md" "$outDir/" -Force
+          Copy-Item "LICENSE" "$outDir/" -Force
+          Compress-Archive -Path "$outDir/*" -DestinationPath "dist/UhfWrapper-${{ matrix.arch }}.zip" -Force
+
+      - name: Upload Artifact (${{ matrix.arch }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.arch }}
+          path: dist/UhfWrapper-${{ matrix.arch }}.zip
+          if-no-files-found: error
+
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Build Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: package-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Publish GitHub Release Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-assets/UhfWrapper-x64.zip
+            release-assets/UhfWrapper-x86.zip
+          generate_release_notes: true

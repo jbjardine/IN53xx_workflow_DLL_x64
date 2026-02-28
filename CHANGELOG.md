@@ -8,8 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Add GitHub Actions workflow to build x64/x86 on push/PR and publish release assets on tags.
 
 ### Changed
+- CMake now supports CI builds without vendor import libraries by generating a minimal DEF (`UHF_*` exports only).
 
 ### Fixed
 
