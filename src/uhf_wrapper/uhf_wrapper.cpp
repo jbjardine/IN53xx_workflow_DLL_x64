@@ -342,6 +342,13 @@ static int start_read_vendor(int set_error) {
     return 0;
   }
   int ok = fn(0xFF) ? 1 : 0;
+  if (!ok) {
+    // Some firmware/transport stacks can leave RF in a transient state.
+    // Best effort: stop and retry once.
+    (void)stop_read_vendor(0);
+    sleep_ms(30);
+    ok = fn(0xFF) ? 1 : 0;
+  }
   if (!ok && set_error) {
     set_last_error("SWHid_StartRead failed", UHF_ERR_VENDOR_CALL_FAILED);
   }
@@ -1393,10 +1400,78 @@ static int parse_tag_buffer(const uint8_t* buf, int total_len, int dedup,
     return 1;
   }
 
-  // Answer-mode frames: "CT" + 16-bit length + payload (tags are cmd 0x45).
+  int offset = 0;
+  int count = 0;
+  auto parse_packed_records = [&](const uint8_t* data, int data_len) {
+    if (!data || data_len <= 0) return;
+    int rec_off = 0;
+    while (rec_off < data_len) {
+      uint8_t pack_len = data[rec_off];
+      if (pack_len == 0) {
+        rec_off += 1;
+        continue;
+      }
+      if (rec_off + 1 + pack_len > data_len) {
+        break;
+      }
+
+      uint8_t tag_type = data[rec_off + 1];
+      uint8_t antenna = data[rec_off + 2];
+      int has_ts = (tag_type & 0x80) != 0;
+      int id_len = static_cast<int>(pack_len) - 1 - 2 - (has_ts ? 6 : 0);
+
+      if (id_len <= 0 || id_len > UHF_MAX_EPC_BYTES) {
+        rec_off += pack_len + 1;
+        continue;
+      }
+
+      const uint8_t* epc_ptr = data + rec_off + 3;
+      const uint8_t* rssi_ptr = epc_ptr + id_len;
+      const uint8_t* frame_end = data + rec_off + 1 + pack_len;
+      if (rssi_ptr >= frame_end) {
+        rec_off += pack_len + 1;
+        continue;
+      }
+      if (has_ts && (rssi_ptr + 1 + UHF_TS_LEN > frame_end)) {
+        rec_off += pack_len + 1;
+        continue;
+      }
+
+      UHF_Tag tag{};
+      tag.epcLenBytes = static_cast<uint8_t>(id_len);
+      bytes_to_hex(epc_ptr, id_len, tag.epc, sizeof(tag.epc));
+      tag.rssiDbm = rssi_to_dbm(*rssi_ptr);
+      tag.antenna = antenna;
+      tag.tagType = tag_type;
+      tag.hasTs = static_cast<uint8_t>(has_ts ? 1 : 0);
+      if (has_ts) {
+        const uint8_t* ts_ptr = rssi_ptr + 1;
+        for (int i = 0; i < UHF_TS_LEN; ++i) {
+          tag.tsRaw[i] = ts_ptr[i];
+        }
+      }
+
+      int is_dup = 0;
+      if (dedup) {
+        for (int i = 0; i < count; ++i) {
+          if (strncmp(out_tags[i].epc, tag.epc, sizeof(tag.epc)) == 0) {
+            is_dup = 1;
+            break;
+          }
+        }
+      }
+      if (!is_dup && count < max_tags) {
+        out_tags[count++] = tag;
+      }
+
+      rec_off += pack_len + 1;
+    }
+  };
+
+  // Reader packets can come as:
+  // - packed tag records only (active buffer APIs), or
+  // - "CT" framed responses (Inventory/ActiveData module responses).
   if (total_len >= 4 && buf[0] == 0x43 && buf[1] == 0x54) {
-    int offset = 0;
-    int count = 0;
     while (offset + 4 <= total_len) {
       if (buf[offset] != 0x43 || buf[offset + 1] != 0x54) {
         offset += 1;
@@ -1407,96 +1482,21 @@ static int parse_tag_buffer(const uint8_t* buf, int total_len, int dedup,
       if (payload_len <= 0 || offset + 4 + payload_len > total_len) {
         break;
       }
-      const uint8_t* payload = buf + offset + 4;
-      // Expect payload[1] == 0x45 for tag report frames.
-      if (payload_len >= 16 && payload[1] == 0x45) {
-        const int header_len = 14;
-        int epc_len = payload_len - header_len - 2; // exclude CRC
-        if (epc_len > 0 && epc_len <= UHF_MAX_EPC_BYTES) {
-          const uint8_t* epc_ptr = payload + header_len;
-          uint8_t rssi_raw = payload[4];
-          UHF_Tag tag{};
-          tag.epcLenBytes = static_cast<uint8_t>(epc_len);
-          bytes_to_hex(epc_ptr, epc_len, tag.epc, sizeof(tag.epc));
-          tag.rssiDbm = rssi_to_dbm(rssi_raw);
-          tag.antenna = payload[2];
-          tag.tagType = payload[0];
-          tag.hasTs = 0;
 
-          int is_dup = 0;
-          if (dedup) {
-            for (int i = 0; i < count; ++i) {
-              if (strncmp(out_tags[i].epc, tag.epc, sizeof(tag.epc)) == 0) {
-                is_dup = 1;
-                break;
-              }
-            }
-          }
-          if (!is_dup && count < max_tags) {
-            out_tags[count++] = tag;
-          }
-        }
+      const uint8_t* payload = buf + offset + 4;
+      // CMD_INVENTORY_TAG response: status, cmd(0x01), result, tagCount(2), records..., checksum
+      if (payload_len >= 6 && payload[1] == 0x01) {
+        parse_packed_records(payload + 5, payload_len - 5);
       }
+      // CMD_ACTIVE_DATA response: status, cmd(0x45), result, devSn(7), tagNum, records..., checksum
+      else if (payload_len >= 12 && payload[1] == 0x45) {
+        parse_packed_records(payload + 11, payload_len - 11);
+      }
+
       offset += 4 + payload_len;
     }
-    *out_count = count;
-    return 1;
-  }
-
-  int offset = 0;
-  int count = 0;
-  while (offset < total_len) {
-    uint8_t pack_len = buf[offset];
-    if (pack_len == 0) {
-      offset += 1;
-      continue;
-    }
-    if (offset + 1 + pack_len > total_len) {
-      break;
-    }
-
-    uint8_t tag_type = buf[offset + 1];
-    uint8_t antenna = buf[offset + 2];
-    int has_ts = (tag_type & 0x80) != 0;
-
-    int id_len = static_cast<int>(pack_len) - 1 - 2 - (has_ts ? 6 : 0);
-    if (id_len < 0) {
-      offset += pack_len + 1;
-      continue;
-    }
-
-    const uint8_t* epc_ptr = buf + offset + 3;
-    const uint8_t* rssi_ptr = epc_ptr + id_len;
-
-    UHF_Tag tag{};
-    tag.epcLenBytes = static_cast<uint8_t>(id_len);
-    bytes_to_hex(epc_ptr, id_len, tag.epc, sizeof(tag.epc));
-    tag.rssiDbm = rssi_to_dbm(*rssi_ptr);
-    tag.antenna = antenna;
-    tag.tagType = tag_type;
-    tag.hasTs = static_cast<uint8_t>(has_ts ? 1 : 0);
-    if (has_ts) {
-      const uint8_t* ts_ptr = rssi_ptr + 1;
-      for (int i = 0; i < UHF_TS_LEN; ++i) {
-        tag.tsRaw[i] = ts_ptr[i];
-      }
-    }
-
-    int is_dup = 0;
-    if (dedup) {
-      for (int i = 0; i < count; ++i) {
-        if (strncmp(out_tags[i].epc, tag.epc, sizeof(tag.epc)) == 0) {
-          is_dup = 1;
-          break;
-        }
-      }
-    }
-
-    if (!is_dup && count < max_tags) {
-      out_tags[count++] = tag;
-    }
-
-    offset += pack_len + 1;
+  } else {
+    parse_packed_records(buf, total_len);
   }
 
   *out_count = count;
@@ -2711,6 +2711,14 @@ UHF_API int UHF_CALL UHF_CalibrateByTag(const char* targetEpcHex,
     return 0;
   }
 
+  if (!UHF_EnsureUsbTransport()) {
+    set_last_error("Failed to ensure USB transport for calibration", UHF_ERR_VENDOR_CALL_FAILED);
+    return 0;
+  }
+
+  // Ensure no lingering mask selection before calibration.
+  UHF_ClearSelect();
+
   int prevPower = UHF_GetPowerDbm();
   int selection_enabled = 0;
   // NOTE: We intentionally avoid hardware mask selection during calibration.
@@ -2721,21 +2729,34 @@ UHF_API int UHF_CALL UHF_CalibrateByTag(const char* targetEpcHex,
     // Ensure RF is stopped before power changes.
     stop_read_vendor(0);
     g_is_reading = 0;
-    // Best effort: keep AnswerMode, but don't abort calibration if it can't be set.
+    // Some firmwares only accept power changes in Active mode.
     (void)UHF_SetWorkModeAnswer();
     if (UHF_SetPowerDbm(value)) {
       return 1;
     }
-    if (selection_enabled) {
-      // Some firmwares refuse power changes while mask select is active.
-      UHF_ClearSelect();
-      selection_enabled = 0;
-      if (UHF_SetPowerDbm(value)) {
-        return 1;
-      }
+    (void)UHF_SetWorkModeActive();
+    if (UHF_SetPowerDbm(value)) {
+      return 1;
     }
-    char msg[128];
-    snprintf(msg, sizeof(msg), "SetPowerDbm failed during calibration (dbm=%d)", value);
+    // Some firmwares refuse power changes while mask select is active.
+    UHF_ClearSelect();
+    selection_enabled = 0;
+    if (UHF_SetPowerDbm(value)) {
+      return 1;
+    }
+    (void)UHF_SetWorkModeActive();
+    if (UHF_SetPowerDbm(value)) {
+      return 1;
+    }
+    char msg[256];
+    const char* err = UHF_GetLastError();
+    if (err && err[0]) {
+      snprintf(msg, sizeof(msg),
+               "SetPowerDbm failed during calibration (dbm=%d): %s", value, err);
+    } else {
+      snprintf(msg, sizeof(msg),
+               "SetPowerDbm failed during calibration (dbm=%d)", value);
+    }
     set_last_error(msg, UHF_ERR_VENDOR_CALL_FAILED);
     return 0;
   };

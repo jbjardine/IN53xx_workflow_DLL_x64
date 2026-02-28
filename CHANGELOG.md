@@ -13,6 +13,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.1.1] - 2026-02-28
+
+### Added
+- Add CLI troubleshooting guidance for lingering select masks and USB-over-IP polling intervals.
+
+### Changed
+- `read-count` now uses safe pop internally (stop/pop/restart) for better reliability on some firmware/transport combinations.
+
+### Fixed
+- Improve tag parsing for `CT` framed inventory responses (`cmd=0x01`) in addition to active data frames (`cmd=0x45`).
+- Add a one-time retry path for `SWHid_StartRead` to reduce transient read-start failures.
+- Clear lingering selection before calibration and improve calibration power-set retry/error details.
+
 ## [0.1.0] - 2026-01-04
 
 ### Added

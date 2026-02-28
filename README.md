@@ -85,6 +85,17 @@ UhfWrapperCli.exe --friendly --target <EPC_ACTUEL> --force write-epc <NEW_EPC_HE
 
 Note: `info` JSON/CSV includes `freqRegion` (e.g., `EU`, `US`).
 
+If reads unexpectedly return 0 tags:
+
+```powershell
+# Clear any lingering EPC mask selection
+UhfWrapperCli.exe --friendly select-clear
+
+# On USB-over-IP (VirtualHere), use a slower polling loop
+UhfWrapperCli.exe --friendly --interval 1000 --timeout 10000 read-count 1
+UhfWrapperCli.exe --friendly --interval 1000 --duration 8000 read-stream
+```
+
 ## API Reference (Friendly `UHF_*`)
 
 The public, stable surface is the `UHF_*` API (same for x64/x86). For exact
@@ -260,6 +271,8 @@ If the device is in Weigand (WG26/WG34), switch back to USB via ReaderSoft or he
 ## Known Limitations / Notes
 
 - Some firmwares return 0 tags in Answer/InventoryG2; user-friendly reads fall back to Active + buffer.
+- A lingering EPC mask selection can hide tags from generic reads; call `select-clear` before diagnostics.
+- On USB-over-IP links, faster poll loops can be unstable; prefer `--interval 500..1000`.
 - Calibration uses software EPC filtering (no hardware mask) to avoid `SetPowerDbm` failures on some devices.
 - Trigger mode is not supported by the current vendor firmware/EXE.
 - If a vendor call is missing in x64, the wrapper returns a clear “x86 required” error for parity.

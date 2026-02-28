@@ -60,6 +60,14 @@ Calibration options:
 - `read-stream` : continuous buffer read
 - `buffer-test` : start read, wait, pop+clear, stop
 
+`read-count` uses safe pop internally (stop/pop/restart) for better reliability
+on some firmware + USB-over-IP setups.
+
+Troubleshooting (reader connected but no tags):
+- `select-clear` : clear any lingering EPC mask selection before generic reads
+- On USB-over-IP links (VirtualHere), increase loop interval:
+  `--interval 1000` (or at least `--interval 500`)
+
 Calibrated versions:
 - `read-once-calib`
 - `read-stream-calib`

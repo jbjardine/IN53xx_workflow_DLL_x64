@@ -908,6 +908,8 @@ static int dispatch_command(const char* cmd, int argc, char** argv, int argi, co
         int csv_header_done = 0;
         auto start = std::chrono::steady_clock::now();
         CliOptions loop_opt = opt;
+        // On some firmware/transport combos, popping while stream is running
+        // often returns empty buffers. Safe pop (stop/pop/restart) is more reliable.
         loop_opt.safe = 1;
         while (printed < target) {
           UHF_Tag tags[256];
@@ -949,7 +951,6 @@ static int dispatch_command(const char* cmd, int argc, char** argv, int argi, co
       int csv_header_done = 0;
       auto start = std::chrono::steady_clock::now();
       CliOptions loop_opt = opt;
-      loop_opt.safe = 1;
       if (opt.friendly && opt.out == OUT_TEXT) {
         printf("Streaming started.\n");
       }
