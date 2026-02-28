@@ -1,6 +1,8 @@
 # IN53xx UHF Reader Wrapper (UhfWrapper)
 
 [![GitHub](https://img.shields.io/badge/GitHub-jbjardine%2FIN53xx__workflow__DLL__x64-blue?logo=github)](https://github.com/jbjardine/IN53xx_workflow_DLL_x64)
+[![Build And Release](https://github.com/jbjardine/IN53xx_workflow_DLL_x64/actions/workflows/build-and-release.yml/badge.svg)](https://github.com/jbjardine/IN53xx_workflow_DLL_x64/actions/workflows/build-and-release.yml)
+[![Release](https://img.shields.io/github/v/release/jbjardine/IN53xx_workflow_DLL_x64)](https://github.com/jbjardine/IN53xx_workflow_DLL_x64/releases)
 [![C++](https://img.shields.io/badge/C%2B%2B-17-00599C?logo=c%2B%2B)](https://isocpp.org/)
 [![CMake](https://img.shields.io/badge/CMake-3.x-064F8C?logo=cmake)](https://cmake.org/)
 [![.NET](https://img.shields.io/badge/.NET-P%2FInvoke-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
