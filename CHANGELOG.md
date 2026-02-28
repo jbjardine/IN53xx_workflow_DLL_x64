@@ -22,6 +22,8 @@ Current tag/release map:
 ### Added
 
 ### Changed
+- Clarify API return conventions in docs: most command functions are `1=success / 0=failure`, while value getters return `>=0` value or `-1` on failure.
+- Clarify `UHF_GetLastError()` signature in docs (`const char*`, no output buffer parameter).
 
 ### Fixed
 

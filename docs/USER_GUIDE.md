@@ -25,6 +25,12 @@ Le wrapper expose :
 - `UHF_GetLastError()` : message texte
 - `UHF_GetLastErrorCode()` : code numerique
 
+Convention de retour (important) :
+- Fonctions d'action (`Open`, `StartRead`, `Write*`, etc.) : `1` = succes, `0` = echec
+- Fonctions qui renvoient une valeur (`UHF_GetTransport`, `UHF_GetWorkMode`, `UHF_GetPowerDbm`, `UHF_GetPowerPct`) :
+  valeur `>= 0` en succes, `-1` en echec
+- `UHF_GetUsbCount()` : nombre de lecteurs `0..N`, ou `-1` en erreur interne
+
 Codes principaux :
 - `UHF_ERR_OK` (0)
 - `UHF_ERR_UNKNOWN` (-1)

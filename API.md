@@ -17,12 +17,18 @@ For exact declarations, see `src/uhf_wrapper/uhf_wrapper.h`.
 
 ## Error handling
 
-Most functions return `int`:
-- `0` = success
-- `<0` = error (see codes below)
+`UHF_*` uses two return styles:
+- Command/action functions return `int` as boolean: `1` = success, `0` = failure.
+- Value getter functions return the value on success and `-1` on failure
+  (for example: `UHF_GetTransport`, `UHF_GetWorkMode`, `UHF_GetPowerDbm`,
+  `UHF_GetPowerPct`).
+
+Special case:
+- `UHF_GetUsbCount()` returns the number of detected devices (`0..N`), or `-1`
+  on internal error (for example missing vendor export).
 
 Use:
-- `UHF_GetLastError()` for a short human-readable string
+- `UHF_GetLastError()` for a short human-readable string (`const char*`, no output buffer parameter)
 - `UHF_GetLastErrorCode()` for the last error code
 
 Common error codes:
