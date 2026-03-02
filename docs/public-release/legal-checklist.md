@@ -8,8 +8,8 @@ This checklist is a **blocking gate**. Do not switch repository visibility to pu
 - [ ] Planned date: TBD (after legal sign-off)
 
 ## Vendor and licensing
-- [ ] Confirm wrapper source publication is allowed.
-- [ ] Confirm public documentation of consumed vendor API signatures is allowed.
+- [x] Confirm wrapper source publication is allowed (owner attestation, 2026-03-02).
+- [x] Confirm public documentation of consumed vendor API signatures is allowed (owner attestation, 2026-03-02).
 - [x] Confirm no vendor SDK binaries (`SWHidApi.dll`, `.lib`) are tracked in Git.
 - [x] Confirm public release ZIPs do not include `SWHidApi.dll`.
 - [x] Confirm `NOTICE_VENDOR.md` is present and accurate.
