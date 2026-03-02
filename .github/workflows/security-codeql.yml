@@ -35,4 +35,4 @@ jobs:
       - name: Analyze
         uses: github/codeql-action/analyze@c793b717bc78562f491db7b0e93a3a178b099162 # v4
         with:
-          upload: true
+          upload: ${{ github.event.repository.private == false }}
