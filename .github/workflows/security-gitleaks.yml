@@ -35,7 +35,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          /tmp/gitleaks git --source . --redact --exit-code 1 --report-format sarif --report-path gitleaks.sarif
+          /tmp/gitleaks git . --redact --exit-code 1 --report-format sarif --report-path gitleaks.sarif
 
       - name: Upload Gitleaks SARIF
         if: always()
