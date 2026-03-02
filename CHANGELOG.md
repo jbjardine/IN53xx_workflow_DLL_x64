@@ -35,6 +35,7 @@ Current tag/release map:
 - Pin GitHub Actions in CI workflows to immutable commit SHAs.
 - Convert PowerShell helper scripts to repository-relative paths.
 - Remove non-public working notes from the repository.
+- Remove the `exemple/` WinDev sample directory from the public repository scope.
 
 ### Fixed
 

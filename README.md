@@ -289,9 +289,8 @@ IN53xx_workflow_DLL_x64/
 │   ├── uhf_wrapper.h
 │   ├── UhfWrapper.def
 │   └── uhf_cli.cpp
-├── docs/                   # public documentation and release-readiness checks
+├── docs/                   # public documentation
 ├── vendor/                 # vendor SDK and DLLs (ignored in public repo)
-├── exemple/                # WinDev examples
 ├── build-x64/              # x64 build output
 ├── build-x86/              # x86 build output
 └── README.md

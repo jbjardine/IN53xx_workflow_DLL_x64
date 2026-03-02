@@ -4,8 +4,7 @@ This document describes the repository layout and the purpose of each top‑leve
 
 ```
 .
-├─ docs/                # Public guides and release-readiness docs
-├─ exemple/             # WinDev examples (vendor‑style usage)
+├─ docs/                # Public guides and technical docs
 ├─ src/uhf_wrapper/     # Native wrapper, CLI, and .NET P/Invoke
 ├─ vendor/              # Vendor SDK (local copy)
 ├─ build-x64/           # Local build outputs (x64)
