@@ -22,7 +22,7 @@ Current tag/release map:
 
 ### Added
 - Add public repository governance files: `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SUPPORT.md`.
-- Add public release gate docs: `NOTICE_VENDOR.md`, `docs/public-release/legal-checklist.md`, and `docs/public-release/go-no-go-report.md`.
+- Add vendor notice documentation in `NOTICE_VENDOR.md`.
 - Add security automation workflows for Gitleaks and CodeQL, plus Dependabot configuration.
 - Add GitHub issue and pull request templates.
 

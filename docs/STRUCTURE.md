@@ -29,9 +29,6 @@ This document describes the repository layout and the purpose of each top‑leve
 - `docs/USER_GUIDE.md`
   - End‑user guide (CLI + API usage).
 
-- `docs/public-release/`
-  - Legal and release-readiness checklists for public publication.
-
 ## Build Outputs
 
 - Built artifacts are created under `build-x64/` and `build-x86/`.
