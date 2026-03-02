@@ -3,21 +3,24 @@
 This checklist is a **blocking gate**. Do not switch repository visibility to public until all items are complete.
 
 ## Repository
-- [ ] Repository: `jbjardine/IN53xx_workflow_DLL_x64`
-- [ ] Target visibility change: Private -> Public
+- [x] Repository: `jbjardine/IN53xx_workflow_DLL_x64`
+- [x] Target visibility change: Private -> Public
 - [ ] Planned date:
 
 ## Vendor and licensing
 - [ ] Confirm wrapper source publication is allowed.
 - [ ] Confirm public documentation of consumed vendor API signatures is allowed.
-- [ ] Confirm no vendor SDK binaries (`SWHidApi.dll`, `.lib`) are tracked in Git.
-- [ ] Confirm public release ZIPs do not include `SWHidApi.dll`.
-- [ ] Confirm `NOTICE_VENDOR.md` is present and accurate.
+- [x] Confirm no vendor SDK binaries (`SWHidApi.dll`, `.lib`) are tracked in Git.
+- [x] Confirm public release ZIPs do not include `SWHidApi.dll`.
+- [x] Confirm `NOTICE_VENDOR.md` is present and accurate.
 
 ## Compliance evidence
-- [ ] Attach latest CI run URL showing packaging checks passed.
-- [ ] Attach latest secret scan run URL.
-- [ ] Attach latest code scanning run URL.
+- [x] Attach latest CI run URL showing packaging checks passed.
+  - https://github.com/jbjardine/IN53xx_workflow_DLL_x64/actions/runs/22591757316
+- [x] Attach latest secret scan run URL.
+  - https://github.com/jbjardine/IN53xx_workflow_DLL_x64/actions/runs/22591757293
+- [x] Attach latest code scanning run URL.
+  - https://github.com/jbjardine/IN53xx_workflow_DLL_x64/actions/runs/22591757276
 
 ## Sign-off (required)
 - [ ] Owner sign-off (name/date):
