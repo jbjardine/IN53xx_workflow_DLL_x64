@@ -34,7 +34,7 @@ Current tag/release map:
 - Harden release packaging to block vendor binary inclusion and publish SHA256 checksums.
 - Pin GitHub Actions in CI workflows to immutable commit SHAs.
 - Convert PowerShell helper scripts to repository-relative paths.
-- Remove internal note files from the repository (`docs/project_notes/*`, `docs/AGENTS.md`, `CLAUDE.md`, `README-backup.md`, `history.md`).
+- Remove non-public working notes from the repository.
 
 ### Fixed
 
@@ -86,8 +86,6 @@ Current tag/release map:
 ## [0.1.0] - 2026-01-04
 
 ### Added
-- Add project memory system in `docs/project_notes/` with ADRs, bug log, key facts, and work log.
-- Add `CLAUDE.md` and update `docs/AGENTS.md` to keep memory protocols consistent.
 - Add WorkMode helper APIs and automatic Answer/Active switching for user-friendly `UHF_*` calls.
 - Add calibration persistence and calibrated read APIs + CLI commands.
 - Add Transport helpers (`UHF_GetTransport`, `UHF_SetTransport`, `UHF_SetTransportUsb`, `UHF_EnsureUsbTransport`).
@@ -95,7 +93,7 @@ Current tag/release map:
  - Add `UHF_GetStatus` with enriched CLI `info` output (power, transport, workmode, freq region).
 
 ### Changed
-- Update documentation references to include the new changelog and memory notes.
+- Update documentation references to include the new changelog.
 - Calibration now uses software EPC filtering to avoid firmware blocking power changes.
 - Calibration power sweep now runs from max → min and requires all reads-per-step to pass.
 - Calibration now rejects duplicate calibration EPCs when multiple TIDs are detected.

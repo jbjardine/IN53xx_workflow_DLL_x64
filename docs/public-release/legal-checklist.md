@@ -16,11 +16,11 @@ This checklist is a **blocking gate**. Do not switch repository visibility to pu
 
 ## Compliance evidence
 - [x] Attach latest CI run URL showing packaging checks passed.
-  - https://github.com/jbjardine/IN53xx_workflow_DLL_x64/actions/runs/22591757316
+  - https://github.com/jbjardine/IN53xx_workflow_DLL_x64/actions/runs/22591962045
 - [x] Attach latest secret scan run URL.
-  - https://github.com/jbjardine/IN53xx_workflow_DLL_x64/actions/runs/22591757293
+  - https://github.com/jbjardine/IN53xx_workflow_DLL_x64/actions/runs/22591962093
 - [x] Attach latest code scanning run URL.
-  - https://github.com/jbjardine/IN53xx_workflow_DLL_x64/actions/runs/22591757276
+  - https://github.com/jbjardine/IN53xx_workflow_DLL_x64/actions/runs/22591962096
 
 ## Sign-off (required)
 - [ ] Owner sign-off (name/date):
