@@ -5,7 +5,7 @@ This checklist is a **blocking gate**. Do not switch repository visibility to pu
 ## Repository
 - [x] Repository: `jbjardine/IN53xx_workflow_DLL_x64`
 - [x] Target visibility change: Private -> Public
-- [ ] Planned date:
+- [ ] Planned date: TBD (after legal sign-off)
 
 ## Vendor and licensing
 - [ ] Confirm wrapper source publication is allowed.
@@ -16,11 +16,11 @@ This checklist is a **blocking gate**. Do not switch repository visibility to pu
 
 ## Compliance evidence
 - [x] Attach latest CI run URL showing packaging checks passed.
-  - https://github.com/jbjardine/IN53xx_workflow_DLL_x64/actions/runs/22591962045
+  - https://github.com/jbjardine/IN53xx_workflow_DLL_x64/actions/runs/22592312908
 - [x] Attach latest secret scan run URL.
-  - https://github.com/jbjardine/IN53xx_workflow_DLL_x64/actions/runs/22591962093
+  - https://github.com/jbjardine/IN53xx_workflow_DLL_x64/actions/runs/22592312894
 - [x] Attach latest code scanning run URL.
-  - https://github.com/jbjardine/IN53xx_workflow_DLL_x64/actions/runs/22591962096
+  - https://github.com/jbjardine/IN53xx_workflow_DLL_x64/actions/runs/22592312858
 
 ## Sign-off (required)
 - [ ] Owner sign-off (name/date):
@@ -28,5 +28,5 @@ This checklist is a **blocking gate**. Do not switch repository visibility to pu
 
 ## Go/No-Go outcome
 - [ ] GO
-- [ ] NO-GO
-- [ ] Notes:
+- [x] NO-GO
+- [x] Notes: Blocked until owner and legal/compliance sign-offs are completed.

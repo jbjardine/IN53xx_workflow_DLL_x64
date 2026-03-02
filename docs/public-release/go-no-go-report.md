@@ -15,9 +15,9 @@ Passing rule: overall >= 0.95 and first two dimensions at 1.00.
 
 ## Evidence
 - Pull request with hardening changes: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/pull/1
-- Secret scan workflow (Gitleaks): https://github.com/jbjardine/IN53xx_workflow_DLL_x64/actions/runs/22591962093
-- CodeQL analysis workflow: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/actions/runs/22591962096
-- Build and release workflow: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/actions/runs/22591962045
+- Secret scan workflow (Gitleaks): https://github.com/jbjardine/IN53xx_workflow_DLL_x64/actions/runs/22592312894
+- CodeQL analysis workflow: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/actions/runs/22592312858
+- Build and release workflow: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/actions/runs/22592312908
 - Legal checklist: `docs/public-release/legal-checklist.md`
 
 Implementation notes:
