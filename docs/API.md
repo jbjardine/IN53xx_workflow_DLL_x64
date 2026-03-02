@@ -15,6 +15,13 @@ For exact declarations, see `src/uhf_wrapper/uhf_wrapper.h`.
 #include "uhf_wrapper.h"
 ```
 
+## Runtime vendor DLL loading
+
+- Default behavior on Windows: load `SWHidApi.dll` from the same directory as `UhfWrapper.dll`.
+- Optional override: `UHF_VENDOR_DLL` environment variable.
+- Security requirement: `UHF_VENDOR_DLL` must be an absolute path to an existing `.dll` file.
+- On x64 helper fallback paths, `UHF_X86_HELPER` must be an absolute path to an existing `.exe` file.
+
 ## Error handling
 
 `UHF_*` uses two return styles:

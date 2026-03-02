@@ -56,7 +56,7 @@ Outputs (Release):
 - `UhfWrapperCli.exe`
 - `SWHidApi.dll` (copied when available)
 
-> Override vendor DLL path at runtime:
+> Override vendor DLL path at runtime (absolute `.dll` path required):
 >
 > ```powershell
 > set UHF_VENDOR_DLL=C:\path\to\SWHidApi.dll
@@ -64,8 +64,9 @@ Outputs (Release):
 
 ## Documentation
 
-- API reference: `API.md`
-- CLI reference: `CLI.md`
+- Documentation index: `docs/README.md`
+- API reference: `docs/API.md`
+- CLI reference: `docs/CLI.md`
 - Changelog: `CHANGELOG.md`
 
 ## CLI Examples
@@ -82,8 +83,8 @@ UhfWrapperCli.exe --friendly write-epc <NEW_EPC_HEX> 00000000
 UhfWrapperCli.exe --friendly select-clear
 
 # One-shot write with safety (blocks if multiple tags detected)
-UhfWrapperCli.exe --friendly --target <EPC_ACTUEL> write-epc <NEW_EPC_HEX> 00000000
-UhfWrapperCli.exe --friendly --target <EPC_ACTUEL> --force write-epc <NEW_EPC_HEX> 00000000
+UhfWrapperCli.exe --friendly --target <CURRENT_EPC> write-epc <NEW_EPC_HEX> 00000000
+UhfWrapperCli.exe --friendly --target <CURRENT_EPC> --force write-epc <NEW_EPC_HEX> 00000000
 ```
 
 Note: `info` JSON/CSV includes `freqRegion` (e.g., `EU`, `US`).
@@ -289,9 +290,8 @@ IN53xx_workflow_DLL_x64/
 │   ├── uhf_wrapper.h
 │   ├── UhfWrapper.def
 │   └── uhf_cli.cpp
-├── docs/                   # internal notes (ignored in public repo)
+├── docs/                   # public documentation
 ├── vendor/                 # vendor SDK and DLLs (ignored in public repo)
-├── exemple/                # WinDev examples
 ├── build-x64/              # x64 build output
 ├── build-x86/              # x86 build output
 └── README.md
@@ -319,6 +319,14 @@ ctest --test-dir build-x64 -C Release
 ## License
 
 MIT. See `LICENSE`.
+
+## Project Policies
+
+- Security reporting: `SECURITY.md`
+- Contribution process: `CONTRIBUTING.md`
+- Code of conduct: `CODE_OF_CONDUCT.md`
+- Support channels: `SUPPORT.md`
+- Vendor/legal notice: `NOTICE_VENDOR.md`
 
 ## Support
 

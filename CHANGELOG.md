@@ -21,8 +21,23 @@ Current tag/release map:
 ## [Unreleased]
 
 ### Added
+- Add public repository governance files: `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SUPPORT.md`.
+- Add vendor notice documentation in `NOTICE_VENDOR.md`.
+- Add security automation workflows for Gitleaks and CodeQL, plus Dependabot configuration.
+- Add GitHub issue and pull request templates.
 
 ### Changed
+- Harden vendor DLL loading and helper path validation:
+  - `UHF_VENDOR_DLL` must be an absolute `.dll` path to an existing file.
+  - `UHF_X86_HELPER` must be an absolute `.exe` path to an existing file.
+  - Default vendor loading now resolves `SWHidApi.dll` from the wrapper directory.
+- Harden release packaging to block vendor binary inclusion and publish SHA256 checksums.
+- Pin GitHub Actions in CI workflows to immutable commit SHAs.
+- Convert PowerShell helper scripts to repository-relative paths.
+- Remove non-public working notes from the repository.
+- Remove the `exemple/` WinDev sample directory from the public repository scope.
+- Move API and CLI references to `docs/API.md` and `docs/CLI.md` for a docs-only layout.
+- Repository history was rewritten on 2026-03-02 to purge internal-note paths; existing clones should reclone.
 
 ### Fixed
 
@@ -74,22 +89,20 @@ Current tag/release map:
 ## [0.1.0] - 2026-01-04
 
 ### Added
-- Add project memory system in `docs/project_notes/` with ADRs, bug log, key facts, and work log.
-- Add `CLAUDE.md` and update `docs/AGENTS.md` to keep memory protocols consistent.
 - Add WorkMode helper APIs and automatic Answer/Active switching for user-friendly `UHF_*` calls.
 - Add calibration persistence and calibrated read APIs + CLI commands.
 - Add Transport helpers (`UHF_GetTransport`, `UHF_SetTransport`, `UHF_SetTransportUsb`, `UHF_EnsureUsbTransport`).
- - Add public API/CLI documentation (`API.md`, `CLI.md`) and expand README.
- - Add `UHF_GetStatus` with enriched CLI `info` output (power, transport, workmode, freq region).
+- Add public API/CLI documentation (`docs/API.md`, `docs/CLI.md`) and expand README.
+- Add `UHF_GetStatus` with enriched CLI `info` output (power, transport, workmode, freq region).
 
 ### Changed
-- Update documentation references to include the new changelog and memory notes.
+- Update documentation references to include the new changelog.
 - Calibration now uses software EPC filtering to avoid firmware blocking power changes.
 - Calibration power sweep now runs from max → min and requires all reads-per-step to pass.
 - Calibration now rejects duplicate calibration EPCs when multiple TIDs are detected.
 - Calibration skips duplicate check if the reader ignores mask select (best-effort).
 - User-friendly calls now enforce Transport=USB when possible (auto-fix).
- - Improve CLI `info` output to be user-friendly when RSSI filter is disabled.
+- Improve CLI `info` output to be user-friendly when RSSI filter is disabled.
 
 ### Fixed
 - Parse Answer-mode tag frames even when the vendor buffer reports zero tags.

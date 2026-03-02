@@ -149,17 +149,140 @@ static void set_last_error(const char* msg, int code) {
 #endif
 }
 
+#if defined(_WIN32)
+static int win_path_is_absolute(const char* path) {
+  if (!path || !path[0]) return 0;
+  // Drive path: C:\... or C:/...
+  if (isalpha(static_cast<unsigned char>(path[0])) &&
+      path[1] == ':' &&
+      (path[2] == '\\' || path[2] == '/')) {
+    return 1;
+  }
+  // UNC path: \\server\share\...
+  if (path[0] == '\\' && path[1] == '\\') return 1;
+  return 0;
+}
+
+static int win_path_has_ext(const char* path, const char* ext) {
+  if (!path || !ext) return 0;
+  size_t path_len = strlen(path);
+  size_t ext_len = strlen(ext);
+  if (path_len < ext_len) return 0;
+  return _stricmp(path + (path_len - ext_len), ext) == 0;
+}
+
+static int win_normalize_absolute_path(const char* in, char* out, size_t out_cap) {
+  if (!in || !out || out_cap == 0) return 0;
+  char tmp[2048] = {0};
+  DWORD n = GetFullPathNameA(in, static_cast<DWORD>(sizeof(tmp)), tmp, nullptr);
+  if (n == 0 || n >= sizeof(tmp)) return 0;
+  if (!win_path_is_absolute(tmp)) return 0;
+  size_t len = strlen(tmp);
+  if (len + 1 > out_cap) return 0;
+  memcpy(out, tmp, len + 1);
+  return 1;
+}
+
+static int win_file_exists(const char* path) {
+  if (!path || !path[0]) return 0;
+  DWORD attr = GetFileAttributesA(path);
+  if (attr == INVALID_FILE_ATTRIBUTES) return 0;
+  return (attr & FILE_ATTRIBUTE_DIRECTORY) == 0;
+}
+
+static int win_get_wrapper_dir(char* out, size_t out_cap) {
+  if (!out || out_cap == 0) return 0;
+  HMODULE self = nullptr;
+  if (!GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                              GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                          reinterpret_cast<LPCSTR>(&set_last_error),
+                          &self)) {
+    return 0;
+  }
+  char module_path[2048] = {0};
+  DWORD n = GetModuleFileNameA(self, module_path, static_cast<DWORD>(sizeof(module_path)));
+  if (n == 0 || n >= sizeof(module_path)) return 0;
+  char* slash1 = strrchr(module_path, '\\');
+  char* slash2 = strrchr(module_path, '/');
+  char* slash = slash1 ? slash1 : slash2;
+  if (slash2 && slash2 > slash) slash = slash2;
+  if (!slash) return 0;
+  *slash = '\0';
+  size_t len = strlen(module_path);
+  if (len + 1 > out_cap) return 0;
+  memcpy(out, module_path, len + 1);
+  return 1;
+}
+
+static int win_join_path(char* out, size_t out_cap, const char* a, const char* b) {
+  if (!out || !a || !b || out_cap == 0) return 0;
+  int wrote = snprintf(out, out_cap, "%s\\%s", a, b);
+  return wrote > 0 && static_cast<size_t>(wrote) < out_cap;
+}
+
+static LibHandle win_load_library_strict(const char* abs_path) {
+  if (!abs_path || !abs_path[0]) return nullptr;
+  HMODULE lib = nullptr;
+#if defined(LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR) && defined(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS)
+  lib = LoadLibraryExA(abs_path,
+                       nullptr,
+                       LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+#endif
+  if (!lib) {
+    lib = LoadLibraryExA(abs_path, nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+  }
+  if (!lib) {
+    lib = LoadLibraryA(abs_path);
+  }
+  return lib;
+}
+#endif
+
 static int ensure_vendor_loaded() {
   if (g_vendor) {
     return 1;
   }
 #if defined(_WIN32)
-  char dll_path[512] = {0};
-  DWORD n = GetEnvironmentVariableA("UHF_VENDOR_DLL", dll_path, sizeof(dll_path));
-  if (n > 0 && n < sizeof(dll_path)) {
-    g_vendor = LoadLibraryA(dll_path);
+  char env_path[1024] = {0};
+  DWORD n = GetEnvironmentVariableA("UHF_VENDOR_DLL", env_path, sizeof(env_path));
+  if (n >= sizeof(env_path)) {
+    set_last_error("UHF_VENDOR_DLL is too long", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+
+  if (n > 0) {
+    char abs_path[2048] = {0};
+    if (!win_normalize_absolute_path(env_path, abs_path, sizeof(abs_path)) ||
+        !win_path_has_ext(abs_path, ".dll")) {
+      set_last_error("UHF_VENDOR_DLL must be an absolute path to a .dll file", UHF_ERR_INVALID_ARG);
+      return 0;
+    }
+    if (!win_file_exists(abs_path)) {
+      set_last_error("UHF_VENDOR_DLL does not point to an existing file", UHF_ERR_VENDOR_MISSING);
+      return 0;
+    }
+    g_vendor = win_load_library_strict(abs_path);
+    if (!g_vendor) {
+      set_last_error("Failed to load vendor DLL from UHF_VENDOR_DLL", UHF_ERR_VENDOR_MISSING);
+      return 0;
+    }
   } else {
-    g_vendor = LoadLibraryA("SWHidApi.dll");
+    char wrapper_dir[2048] = {0};
+    char candidate[2048] = {0};
+    if (!win_get_wrapper_dir(wrapper_dir, sizeof(wrapper_dir)) ||
+        !win_join_path(candidate, sizeof(candidate), wrapper_dir, "SWHidApi.dll")) {
+      set_last_error("Failed to resolve wrapper directory for vendor DLL loading", UHF_ERR_VENDOR_MISSING);
+      return 0;
+    }
+    if (!win_file_exists(candidate)) {
+      set_last_error("Vendor DLL not found next to UhfWrapper.dll (set UHF_VENDOR_DLL absolute path)", UHF_ERR_VENDOR_MISSING);
+      return 0;
+    }
+    g_vendor = win_load_library_strict(candidate);
+    if (!g_vendor) {
+      set_last_error("Failed to load vendor DLL next to UhfWrapper.dll", UHF_ERR_VENDOR_MISSING);
+      return 0;
+    }
   }
 #else
   g_vendor = dlopen("SWHidApi.so", RTLD_LAZY);
@@ -189,8 +312,19 @@ static const char* get_x86_helper_path() {
   inited = 1;
   char buf[1024] = {0};
   DWORD n = GetEnvironmentVariableA("UHF_X86_HELPER", buf, sizeof(buf));
-  if (n > 0 && n < sizeof(buf)) {
-    path = buf;
+  if (n >= sizeof(buf)) {
+    return nullptr;
+  }
+  if (n > 0) {
+    char abs_path[2048] = {0};
+    if (!win_normalize_absolute_path(buf, abs_path, sizeof(abs_path)) ||
+        !win_path_has_ext(abs_path, ".exe")) {
+      return nullptr;
+    }
+    if (!win_file_exists(abs_path)) {
+      return nullptr;
+    }
+    path = abs_path;
   }
   return path.empty() ? nullptr : path.c_str();
 }
@@ -225,12 +359,13 @@ static int read_once_via_helper(int timeout_ms, UHF_Tag* out_tags, int max_tags,
   *out_count = 0;
   const char* helper = get_x86_helper_path();
   if (!helper || !helper[0]) return 0;
-
-  std::string cmd = "\"";
-  cmd += helper;
-  cmd += "\" --json --timeout ";
-  cmd += std::to_string(timeout_ms);
-  cmd += " read-once";
+  if (strchr(helper, '\"') != nullptr) {
+    set_last_error("UHF_X86_HELPER path contains invalid quote character", UHF_ERR_INVALID_ARG);
+    return 0;
+  }
+  std::string args = "--json --timeout ";
+  args += std::to_string(timeout_ms);
+  args += " read-once";
 
   SECURITY_ATTRIBUTES sa{};
   sa.nLength = sizeof(sa);
@@ -253,11 +388,11 @@ static int read_once_via_helper(int timeout_ms, UHF_Tag* out_tags, int max_tags,
   si.hStdError = write_pipe;
   si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
 
-  std::vector<char> cmd_buf(cmd.begin(), cmd.end());
-  cmd_buf.push_back('\0');
+  std::vector<char> args_buf(args.begin(), args.end());
+  args_buf.push_back('\0');
 
-  BOOL created = CreateProcessA(nullptr,
-                                cmd_buf.data(),
+  BOOL created = CreateProcessA(helper,
+                                args_buf.data(),
                                 nullptr,
                                 nullptr,
                                 TRUE,

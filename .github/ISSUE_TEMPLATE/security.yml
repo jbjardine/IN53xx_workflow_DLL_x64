@@ -1,0 +1,18 @@
+name: Security report
+description: Instructions for reporting a security issue.
+title: "security: "
+labels:
+  - security
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not disclose vulnerabilities publicly.
+        Follow the private reporting process in SECURITY.md.
+  - type: input
+    id: contact
+    attributes:
+      label: Contact method
+      description: How should maintainers contact you privately?
+    validations:
+      required: true

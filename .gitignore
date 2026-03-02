@@ -4,12 +4,6 @@
 # Vendor SDK (private/proprietary)
 vendor/
 
-# Docs (private/work-in-progress)
-docs/
-
-# Local scripts
-scripts/
-
 # VS Code
 .vscode/
 

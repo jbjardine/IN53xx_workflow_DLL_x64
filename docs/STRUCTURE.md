@@ -4,13 +4,11 @@ This document describes the repository layout and the purpose of each top‑leve
 
 ```
 .
-├─ docs/                # Guides, docs, and agent notes
-├─ exemple/             # WinDev examples (vendor‑style usage)
+├─ docs/                # Public guides and technical docs
 ├─ src/uhf_wrapper/     # Native wrapper, CLI, and .NET P/Invoke
 ├─ vendor/              # Vendor SDK (local copy)
 ├─ build-x64/           # Local build outputs (x64)
 ├─ build-x86/           # Local build outputs (x86)
-├─ history.md           # Engineering log (decisions/tests)
 └─ README.md            # Project overview
 ```
 
@@ -29,9 +27,6 @@ This document describes the repository layout and the purpose of each top‑leve
 
 - `docs/USER_GUIDE.md`
   - End‑user guide (CLI + API usage).
-
-- `docs/AGENTS.md`
-  - Session notes + workflow hints for future development.
 
 ## Build Outputs
 
