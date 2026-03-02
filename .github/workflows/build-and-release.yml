@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - hardening/**
     tags:
       - "v*"
   pull_request:
@@ -25,7 +26,7 @@ jobs:
             cmake_arch: Win32
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Configure (${{ matrix.arch }})
         run: >
@@ -49,15 +50,29 @@ jobs:
           New-Item -ItemType Directory -Path $outDir -Force | Out-Null
           Copy-Item "build-${{ matrix.arch }}/Release/UhfWrapper.dll" "$outDir/" -Force
           Copy-Item "build-${{ matrix.arch }}/Release/UhfWrapperCli.exe" "$outDir/" -Force
-          if (Test-Path "build-${{ matrix.arch }}/Release/SWHidApi.dll") {
-            Copy-Item "build-${{ matrix.arch }}/Release/SWHidApi.dll" "$outDir/" -Force
-          }
           Copy-Item "README.md" "$outDir/" -Force
           Copy-Item "LICENSE" "$outDir/" -Force
           Compress-Archive -Path "$outDir/*" -DestinationPath "dist/UhfWrapper-${{ matrix.arch }}.zip" -Force
 
+      - name: Verify Package Content (${{ matrix.arch }})
+        shell: pwsh
+        run: |
+          $zipPath = "dist/UhfWrapper-${{ matrix.arch }}.zip"
+          $tmpDir = Join-Path $env:RUNNER_TEMP "pkg-${{ matrix.arch }}"
+          if (Test-Path $tmpDir) { Remove-Item -Recurse -Force $tmpDir }
+          Expand-Archive -Path $zipPath -DestinationPath $tmpDir -Force
+          $forbidden = Get-ChildItem -Path $tmpDir -Recurse -Filter "SWHidApi.dll" -ErrorAction SilentlyContinue
+          if ($forbidden) {
+            throw "Forbidden vendor binary found in package: SWHidApi.dll"
+          }
+          foreach ($required in @("UhfWrapper.dll", "UhfWrapperCli.exe", "README.md", "LICENSE")) {
+            if (-not (Test-Path (Join-Path $tmpDir $required))) {
+              throw "Missing required artifact file: $required"
+            }
+          }
+
       - name: Upload Artifact (${{ matrix.arch }})
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: package-${{ matrix.arch }}
           path: dist/UhfWrapper-${{ matrix.arch }}.zip
@@ -71,16 +86,22 @@ jobs:
       contents: write
     steps:
       - name: Download Build Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: package-*
           merge-multiple: true
           path: release-assets
 
+      - name: Generate SHA256 Checksums
+        run: |
+          sha256sum release-assets/UhfWrapper-x64.zip > release-assets/SHA256SUMS.txt
+          sha256sum release-assets/UhfWrapper-x86.zip >> release-assets/SHA256SUMS.txt
+
       - name: Publish GitHub Release Assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
         with:
           files: |
             release-assets/UhfWrapper-x64.zip
             release-assets/UhfWrapper-x86.zip
+            release-assets/SHA256SUMS.txt
           generate_release_notes: true

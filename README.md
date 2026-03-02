@@ -56,7 +56,7 @@ Outputs (Release):
 - `UhfWrapperCli.exe`
 - `SWHidApi.dll` (copied when available)
 
-> Override vendor DLL path at runtime:
+> Override vendor DLL path at runtime (absolute `.dll` path required):
 >
 > ```powershell
 > set UHF_VENDOR_DLL=C:\path\to\SWHidApi.dll
@@ -289,7 +289,7 @@ IN53xx_workflow_DLL_x64/
 │   ├── uhf_wrapper.h
 │   ├── UhfWrapper.def
 │   └── uhf_cli.cpp
-├── docs/                   # internal notes (ignored in public repo)
+├── docs/                   # public documentation and release-readiness checks
 ├── vendor/                 # vendor SDK and DLLs (ignored in public repo)
 ├── exemple/                # WinDev examples
 ├── build-x64/              # x64 build output
@@ -319,6 +319,14 @@ ctest --test-dir build-x64 -C Release
 ## License
 
 MIT. See `LICENSE`.
+
+## Project Policies
+
+- Security reporting: `SECURITY.md`
+- Contribution process: `CONTRIBUTING.md`
+- Code of conduct: `CODE_OF_CONDUCT.md`
+- Support channels: `SUPPORT.md`
+- Vendor/legal notice: `NOTICE_VENDOR.md`
 
 ## Support
 

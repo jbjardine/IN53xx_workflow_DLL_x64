@@ -33,6 +33,8 @@ cmake --build . --config Release
 The build copies the **x86** vendor `SWHidApi.dll` next to the wrapper when present.
 If the SDK DLL is missing, copy it manually at runtime.
 
+If you override vendor loading with `UHF_VENDOR_DLL`, use an absolute `.dll` path.
+
 ## Notes
 - `UHF_LockTag` uses the vendor signature (`lockCfg + pwd`). `lockCfg` is built from
   `lockType` and `lockMem` as `(lockMem << 4) | lockType`.
@@ -52,6 +54,7 @@ If the SDK DLL is missing, copy it manually at runtime.
 
 ## Documentation
 User guide: `docs/USER_GUIDE.md`
+Vendor notice: `NOTICE_VENDOR.md`
 
 ## High-level helpers (highlights)
 - Buffer: `UHF_PeekBuffer*` / `UHF_PopBuffer*` (with optional safe stop/start).

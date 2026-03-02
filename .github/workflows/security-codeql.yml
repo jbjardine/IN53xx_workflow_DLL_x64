@@ -1,0 +1,38 @@
+name: Security - CodeQL
+
+on:
+  push:
+    branches:
+      - main
+      - hardening/**
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  analyze:
+    name: analyze (cpp-csharp)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@ae9ef3a1d2e3413523c3741725c30064970cc0d4 # v3
+        with:
+          languages: c-cpp,csharp
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@ae9ef3a1d2e3413523c3741725c30064970cc0d4 # v3
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@ae9ef3a1d2e3413523c3741725c30064970cc0d4 # v3

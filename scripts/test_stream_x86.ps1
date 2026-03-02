@@ -3,7 +3,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Text;
 public static class Uhf {
-  public const string Dll = "C:\\Cursor\\IN53xx_workflow_DLL_x64\\build-x86\\Release\\UhfWrapper.dll";
+  public const string Dll = "UhfWrapper.dll";
   [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Ansi, Pack=1)]
   public struct UHF_Tag {
     [MarshalAs(UnmanagedType.ByValTStr, SizeConst=129)]
@@ -30,8 +30,14 @@ public static class Uhf {
 }
 "@
 
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$BuildDir = Join-Path $RepoRoot "build-x86/Release"
+if (-not (Test-Path $BuildDir)) {
+  throw "Build directory not found: $BuildDir"
+}
+
 Add-Type -TypeDefinition $code -Language CSharp
-Set-Location "C:\\Cursor\\IN53xx_workflow_DLL_x64\\build-x86\\Release"
+Set-Location $BuildDir
 
 Write-Host "Init:" ([Uhf]::UHF_Init())
 Write-Host "Open:" ([Uhf]::UHF_Open(0)) "Err:" ([Uhf]::LastError())

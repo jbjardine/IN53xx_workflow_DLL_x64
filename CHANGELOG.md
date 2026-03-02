@@ -21,8 +21,20 @@ Current tag/release map:
 ## [Unreleased]
 
 ### Added
+- Add public repository governance files: `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SUPPORT.md`.
+- Add public release gate docs: `NOTICE_VENDOR.md`, `docs/public-release/legal-checklist.md`, and `docs/public-release/go-no-go-report.md`.
+- Add security automation workflows for Gitleaks and CodeQL, plus Dependabot configuration.
+- Add GitHub issue and pull request templates.
 
 ### Changed
+- Harden vendor DLL loading and helper path validation:
+  - `UHF_VENDOR_DLL` must be an absolute `.dll` path to an existing file.
+  - `UHF_X86_HELPER` must be an absolute `.exe` path to an existing file.
+  - Default vendor loading now resolves `SWHidApi.dll` from the wrapper directory.
+- Harden release packaging to block vendor binary inclusion and publish SHA256 checksums.
+- Pin GitHub Actions in CI workflows to immutable commit SHAs.
+- Convert PowerShell helper scripts to repository-relative paths.
+- Remove internal note files from the repository (`docs/project_notes/*`, `docs/AGENTS.md`, `CLAUDE.md`, `README-backup.md`, `history.md`).
 
 ### Fixed
 
