@@ -99,7 +99,7 @@ Calibrated versions:
 
 Safe write example:
 ```
-UhfWrapperCli.exe --friendly --target <EPC_ACTUEL> write-epc <NEW_EPC> 00000000
+UhfWrapperCli.exe --friendly --target <CURRENT_EPC> write-epc <NEW_EPC> 00000000
 ```
 
 If multiple tags are present, add `--force` to override.

@@ -3,7 +3,7 @@
 Thanks for contributing.
 
 ## Before you start
-- Read `README.md`, `API.md`, and `CLI.md`.
+- Read `README.md`, `docs/API.md`, and `docs/CLI.md`.
 - Keep changes compatible with both x64 and x86 builds.
 - Do not add vendor SDK binaries to Git.
 
@@ -24,7 +24,7 @@ This ensures both architectures stay aligned.
 
 ## Pull request checklist
 - [ ] Change is scoped and documented.
-- [ ] `README.md` / `API.md` / `CLI.md` updated if behavior changed.
+- [ ] `README.md` / `docs/API.md` / `docs/CLI.md` updated if behavior changed.
 - [ ] No secrets or machine-local paths added.
 - [ ] No vendor binaries added.
 - [ ] CI is green.

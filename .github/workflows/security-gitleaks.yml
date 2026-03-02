@@ -26,7 +26,9 @@ jobs:
         run: |
           set -euo pipefail
           VERSION=8.24.3
+          SHA256_LINUX_X64=9991e0b2903da4c8f6122b5c3186448b927a5da4deef1fe45271c3793f4ee29c
           curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tgz
+          echo "${SHA256_LINUX_X64}  /tmp/gitleaks.tgz" | sha256sum -c -
           tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
           chmod +x /tmp/gitleaks
           /tmp/gitleaks version

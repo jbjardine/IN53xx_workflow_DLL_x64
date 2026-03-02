@@ -1,6 +1,6 @@
 # UHF Wrapper (x64/x86)
 
-This module builds `UhfWrapper.dll`, a native x64 wrapper around the vendor `SWHidApi.dll`.
+This module builds `UhfWrapper.dll`, a native x64/x86 wrapper around the vendor `SWHidApi.dll`.
 
 Goals:
 - Expose a simple, stable `UHF_*` API for WinDev and other languages.

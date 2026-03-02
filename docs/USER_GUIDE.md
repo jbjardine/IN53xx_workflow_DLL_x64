@@ -87,6 +87,6 @@ UhfWrapperCli.exe --friendly calib-run --calib-min 0 --calib-max 26 --calib-step
 
 ## Reference docs
 - `README.md`
-- `API.md`
-- `CLI.md`
+- `docs/API.md`
+- `docs/CLI.md`
 - `NOTICE_VENDOR.md`

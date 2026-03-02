@@ -17,4 +17,4 @@ Before changing repository visibility to public, the project owner must confirm:
 2. Public exposure of function signatures used by the wrapper is permitted.
 3. Release artifacts do not contain proprietary vendor binaries.
 
-See `docs/public-release/legal-checklist.md` for the required sign-off workflow.
+The legal sign-off checklist is maintained in private compliance records.
