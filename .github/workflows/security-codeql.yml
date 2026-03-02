@@ -34,3 +34,5 @@ jobs:
 
       - name: Analyze
         uses: github/codeql-action/analyze@ae9ef3a1d2e3413523c3741725c30064970cc0d4 # v3
+        with:
+          upload: false
