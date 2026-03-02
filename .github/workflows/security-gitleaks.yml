@@ -21,12 +21,21 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install Gitleaks
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=8.24.3
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tgz
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+          chmod +x /tmp/gitleaks
+          /tmp/gitleaks version
+
       - name: Run Gitleaks (full git history)
-        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          args: git --redact --exit-code 1 --report-format sarif --report-path gitleaks.sarif
+        shell: bash
+        run: |
+          set -euo pipefail
+          /tmp/gitleaks git --source . --redact --exit-code 1 --report-format sarif --report-path gitleaks.sarif
 
       - name: Upload Gitleaks SARIF
         if: always()
