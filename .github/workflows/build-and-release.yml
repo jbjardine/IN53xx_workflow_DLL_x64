@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-2022
     strategy:
       fail-fast: false
       matrix:
@@ -72,7 +72,7 @@ jobs:
           }
 
       - name: Upload Artifact (${{ matrix.arch }})
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: package-${{ matrix.arch }}
           path: dist/UhfWrapper-${{ matrix.arch }}.zip
@@ -98,7 +98,7 @@ jobs:
           sha256sum release-assets/UhfWrapper-x86.zip >> release-assets/SHA256SUMS.txt
 
       - name: Publish GitHub Release Assets
-        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
           files: |
             release-assets/UhfWrapper-x64.zip
