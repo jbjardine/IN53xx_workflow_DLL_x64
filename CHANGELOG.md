@@ -12,6 +12,7 @@ When a GitHub Release exists, it uses the same tag.
 On tags where the CI workflow is active, release binaries are generated from CI.
 
 Current tag/release map:
+- `v0.1.5` (2026-06-27): [tag][tag-v0.1.5] + [release][release-v0.1.5] + CI assets (`UhfWrapper-x64.zip`, `UhfWrapper-x86.zip`, `SHA256SUMS.txt`)
 - `v0.1.4` (2026-02-28): [tag][tag-v0.1.4] + [release][release-v0.1.4] + CI assets (`UhfWrapper-x64.zip`, `UhfWrapper-x86.zip`)
 - `v0.1.3` (2026-02-28): [tag][tag-v0.1.3] + [release][release-v0.1.3] + CI assets (`UhfWrapper-x64.zip`, `UhfWrapper-x86.zip`)
 - `v0.1.2` (2026-02-28): [tag][tag-v0.1.2] + [release][release-v0.1.2] + CI assets (`UhfWrapper-x64.zip`, `UhfWrapper-x86.zip`)
@@ -19,6 +20,14 @@ Current tag/release map:
 - `v0.1.0` (2026-01-04): [tag][tag-v0.1.0] only (no GitHub Release)
 
 ## [Unreleased]
+
+### Added
+
+### Changed
+
+### Fixed
+
+## [0.1.5] - 2026-06-27
 
 ### Added
 - Add public repository governance files: `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SUPPORT.md`.
@@ -40,6 +49,8 @@ Current tag/release map:
 - Repository history was rewritten on 2026-03-02 to purge internal-note paths; existing clones should reclone.
 
 ### Fixed
+- Stabilize GitHub Actions builds by pinning the build job to `windows-2022`, preserving the Visual Studio 17 2022 CMake generator.
+- Apply verified pinned GitHub Actions updates for `actions/upload-artifact`, `softprops/action-gh-release`, and `github/codeql-action`.
 
 ## [0.1.4] - 2026-02-28
 
@@ -107,13 +118,16 @@ Current tag/release map:
 ### Fixed
 - Parse Answer-mode tag frames even when the vendor buffer reports zero tags.
 
-[Unreleased]: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/releases/tag/v0.1.5
 [0.1.4]: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/releases/tag/v0.1.4
 [0.1.3]: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/releases/tag/v0.1.3
 [0.1.2]: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/releases/tag/v0.1.2
 [0.1.1]: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/releases/tag/v0.1.1
 [0.1.0]: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/tree/v0.1.0
 
+[tag-v0.1.5]: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/tree/v0.1.5
+[release-v0.1.5]: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/releases/tag/v0.1.5
 [tag-v0.1.4]: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/tree/v0.1.4
 [release-v0.1.4]: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/releases/tag/v0.1.4
 [tag-v0.1.3]: https://github.com/jbjardine/IN53xx_workflow_DLL_x64/tree/v0.1.3
